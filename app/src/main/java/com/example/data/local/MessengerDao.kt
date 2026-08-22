@@ -1,0 +1,93 @@
+package com.example.data.local
+
+import androidx.room.*
+import com.example.data.model.*
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface MessengerDao {
+
+    // Conversations
+    @Query("SELECT * FROM conversations WHERE isArchived = 0 ORDER BY isPinned DESC, lastTimestamp DESC")
+    fun getActiveConversations(): Flow<List<ConversationEntity>>
+
+    @Query("SELECT * FROM conversations WHERE id = :id LIMIT 1")
+    fun getConversationById(id: Long): Flow<ConversationEntity?>
+
+    @Query("SELECT * FROM conversations WHERE peerHandle = :handle LIMIT 1")
+    suspend fun getConversationByHandle(handle: String): ConversationEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertConversation(conversation: ConversationEntity): Long
+
+    @Update
+    suspend fun updateConversation(conversation: ConversationEntity)
+
+    @Query("UPDATE conversations SET unreadCount = 0 WHERE id = :conversationId")
+    suspend fun markConversationAsRead(conversationId: Long)
+
+    @Query("UPDATE conversations SET disappearingTimerSeconds = :timerSeconds WHERE id = :conversationId")
+    suspend fun updateDisappearingTimer(conversationId: Long, timerSeconds: Long)
+
+    @Query("DELETE FROM conversations WHERE id = :id")
+    suspend fun deleteConversation(id: Long)
+
+    // Messages
+    @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY timestamp ASC")
+    fun getMessagesForConversation(conversationId: Long): Flow<List<MessageEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertMessage(message: MessageEntity): Long
+
+    @Update
+    suspend fun updateMessage(message: MessageEntity)
+
+    @Query("DELETE FROM messages WHERE id = :id")
+    suspend fun deleteMessage(id: Long)
+
+    @Query("DELETE FROM messages WHERE conversationId = :conversationId")
+    suspend fun deleteAllMessagesInConversation(conversationId: Long)
+
+    @Query("DELETE FROM messages WHERE expiresAtTimestamp IS NOT NULL AND expiresAtTimestamp <= :now")
+    suspend fun purgeExpiredMessages(now: Long)
+
+    // Contacts
+    @Query("SELECT * FROM contacts ORDER BY name ASC")
+    fun getAllContacts(): Flow<List<ContactEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertContact(contact: ContactEntity)
+
+    @Query("DELETE FROM contacts WHERE handle = :handle")
+    suspend fun deleteContact(handle: String)
+
+    // Statuses
+    @Query("SELECT * FROM statuses ORDER BY timestamp DESC")
+    fun getAllStatuses(): Flow<List<StatusEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertStatus(status: StatusEntity): Long
+
+    // Calls
+    @Query("SELECT * FROM calls ORDER BY timestamp DESC")
+    fun getAllCalls(): Flow<List<CallEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCall(call: CallEntity): Long
+
+    @Query("DELETE FROM calls")
+    suspend fun clearCallLogs()
+
+    // Global Wipe / Panic
+    @Query("DELETE FROM conversations")
+    suspend fun wipeConversations()
+
+    @Query("DELETE FROM messages")
+    suspend fun wipeMessages()
+
+    @Query("DELETE FROM calls")
+    suspend fun wipeCalls()
+
+    @Query("DELETE FROM statuses")
+    suspend fun wipeStatuses()
+}

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Chat Bubble Body within 66dp safe zone (21 to 87 range) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,30 C30,30 27,33 27,37 L27,67 C27,71 30,74 34,74 L40,74 L40,82 L50,74 L74,74 C78,74 81,71 81,67 L81,37 C81,33 78,30 74,30 Z" />
+    <!-- Center Shield & Keyhole Silhouette in Indigo -->
+    <path
+        android:fillColor="#005AC1"
+        android:pathData="M54,42 C48,42 46,45 46,45 L46,55 C46,61 54,64 54,64 C54,64 62,61 62,55 L62,45 C62,45 60,42 54,42 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,48 C52.9,48 52,48.9 52,50 C52,50.7 52.4,51.3 53,51.7 L53,55 C53,55.6 53.4,56 54,56 C54.6,56 55,55.6 55,55 L55,51.7 C55.6,51.3 56,50.7 56,50 C56,48.9 55.1,48 54,48 Z" />
+</vector>
