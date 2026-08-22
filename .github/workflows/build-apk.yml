@@ -3,14 +3,14 @@
 on:
   push:
     branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
   build:
-    name: Build Debug APK
+    name: Build & Release APK
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -34,9 +34,25 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
+      - name: Rename APK for direct download
+        run: |
+          mkdir -p release-apk
+          cp app/build/outputs/apk/debug/*.apk release-apk/PrivateMessenger.apk
+
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: PrivateMessenger-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: release-apk/PrivateMessenger.apk
           if-no-files-found: error
+
+      - name: Create Direct GitHub Release (Raw .APK Download)
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        with:
+          tag_name: latest
+          name: "Private Messenger Latest APK"
+          body: "Direct APK build for Android. Download `PrivateMessenger.apk` below and install directly on your phone."
+          files: release-apk/PrivateMessenger.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
