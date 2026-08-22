@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.crypto.CryptoHelper
 import com.example.data.local.AppDatabase
 import com.example.data.model.*
+import com.example.data.remote.CloudStatus
+import com.example.data.remote.FirebaseCloudService
 import com.example.data.repository.MessengerRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -42,12 +44,15 @@ data class UiState(
     val isCallMuted: Boolean = false,
     val isCallSpeaker: Boolean = false,
     val myHandle: String = "whisper.7029",
-    val myPublicKey: String = "ECDH-P256: 4F91B2E6AA1998C1"
+    val myPublicKey: String = "ECDH-P256: 4F91B2E6AA1998C1",
+    val cloudStatus: CloudStatus = CloudStatus.Checking,
+    val isSearchingCloud: Boolean = false
 )
 
 class MessengerViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: MessengerRepository
+    private val cloudService: FirebaseCloudService
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
@@ -57,7 +62,24 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
 
     init {
         val db = AppDatabase.getDatabase(application, viewModelScope)
-        repository = MessengerRepository(db.messengerDao())
+        cloudService = FirebaseCloudService(application, db.messengerDao(), viewModelScope)
+        repository = MessengerRepository(db.messengerDao(), cloudService)
+
+        // Observe Cloud Status
+        viewModelScope.launch {
+            cloudService.cloudStatus.collect { status ->
+                _uiState.update { it.copy(cloudStatus = status) }
+            }
+        }
+
+        // Register default handle in Cloud
+        viewModelScope.launch {
+            cloudService.registerUser(
+                handle = _uiState.value.myHandle,
+                displayName = "User ${_uiState.value.myHandle}",
+                publicKey = _uiState.value.myPublicKey
+            )
+        }
 
         // Start periodic cleanup for disappearing messages
         cleanupTimerJob = viewModelScope.launch {
@@ -133,6 +155,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
     ) {
         if (text.isBlank() && type == MessageType.TEXT) return
         val reply = _uiState.value.replyingToMessage
+        val currentHandle = _uiState.value.myHandle
 
         viewModelScope.launch {
             repository.sendMessage(
@@ -143,13 +166,16 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
                 replyToId = reply?.id,
                 replyToText = reply?.text,
                 type = type,
-                voiceDurationSeconds = voiceDurationSeconds
+                voiceDurationSeconds = voiceDurationSeconds,
+                myHandle = currentHandle
             )
 
             _uiState.update { it.copy(replyingToMessage = null) }
 
-            // Simulate encrypted peer auto-reply for realistic interactive demo
-            triggerSimulatedPeerReply(conversationId, text)
+            // If in local/standalone mode, simulate peer auto-reply for testing
+            if (!cloudService.isCloudAvailable()) {
+                triggerSimulatedPeerReply(conversationId, text)
+            }
         }
     }
 
@@ -203,12 +229,13 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun createCustomContactAndChat(name: String, handle: String) {
         viewModelScope.launch {
+            val clean = if (handle.startsWith("@")) handle.substring(1) else handle
             val newContact = ContactEntity(
-                handle = if (handle.startsWith("@")) handle.substring(1) else handle,
-                name = name,
+                handle = clean,
+                name = name.ifBlank { "@$clean" },
                 avatarBgHex = "#DDE1FF",
                 avatarTextHex = "#001453",
-                publicKey = "ECDH-P256: " + CryptoHelper.generateFingerprint(handle),
+                publicKey = "ECDH-P256: " + CryptoHelper.generateFingerprint(clean),
                 isVerified = true,
                 about = "Encrypted peer"
             )
@@ -216,6 +243,36 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
             val convId = repository.createOrGetConversationForContact(newContact)
             setNewChatDialogOpen(false)
             openConversation(convId)
+        }
+    }
+
+    fun searchAndAddCloudPeer(handle: String, onResult: (Boolean, String) -> Unit) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSearchingCloud = true) }
+            val clean = if (handle.startsWith("@")) handle.substring(1) else handle
+            val cloudUser = cloudService.searchUserByHandle(clean)
+
+            _uiState.update { it.copy(isSearchingCloud = false) }
+            if (cloudUser != null) {
+                val contact = ContactEntity(
+                    handle = cloudUser.handle,
+                    name = cloudUser.displayName,
+                    avatarBgHex = cloudUser.avatarBgHex,
+                    avatarTextHex = cloudUser.avatarTextHex,
+                    publicKey = cloudUser.publicKey,
+                    isVerified = true,
+                    about = cloudUser.about
+                )
+                repository.addContact(contact)
+                val convId = repository.createOrGetConversationForContact(contact)
+                setNewChatDialogOpen(false)
+                openConversation(convId)
+                onResult(true, "Connected with @${cloudUser.handle}")
+            } else {
+                // If not found in cloud, still allow adding as local contact
+                createCustomContactAndChat(clean, clean)
+                onResult(false, "User not found in cloud registry, added as offline/local contact")
+            }
         }
     }
 
@@ -320,13 +377,28 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
     fun updateMyHandle(newHandle: String) {
         val clean = if (newHandle.startsWith("@")) newHandle.substring(1) else newHandle
         if (clean.isNotBlank()) {
-            _uiState.update { it.copy(myHandle = clean.trim()) }
+            val trimmed = clean.trim()
+            _uiState.update { it.copy(myHandle = trimmed) }
+            viewModelScope.launch {
+                cloudService.registerUser(
+                    handle = trimmed,
+                    displayName = "User $trimmed",
+                    publicKey = _uiState.value.myPublicKey
+                )
+            }
         }
     }
 
     fun rotateMyKeys() {
         val newKey = "ECDH-P256: " + CryptoHelper.generateFingerprint(_uiState.value.myHandle + System.currentTimeMillis())
         _uiState.update { it.copy(myPublicKey = newKey) }
+        viewModelScope.launch {
+            cloudService.registerUser(
+                handle = _uiState.value.myHandle,
+                displayName = "User ${_uiState.value.myHandle}",
+                publicKey = newKey
+            )
+        }
     }
 
     fun panicWipeAllData() {
@@ -345,8 +417,10 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
 
     override fun onCleared() {
         super.onCleared()
+        cloudService.stopListener()
         callTimerJob?.cancel()
         voiceRecordJob?.cancel()
         cleanupTimerJob?.cancel()
     }
 }
+

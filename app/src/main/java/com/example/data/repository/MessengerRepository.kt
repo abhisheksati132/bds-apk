@@ -3,10 +3,16 @@ package com.example.data.repository
 import com.example.data.crypto.CryptoHelper
 import com.example.data.local.MessengerDao
 import com.example.data.model.*
+import com.example.data.remote.CloudUser
+import com.example.data.remote.FirebaseCloudService
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 
-class MessengerRepository(private val dao: MessengerDao) {
+class MessengerRepository(
+    private val dao: MessengerDao,
+    private val cloudService: FirebaseCloudService? = null
+) {
 
     val activeConversations: Flow<List<ConversationEntity>> = dao.getActiveConversations()
     val allContacts: Flow<List<ContactEntity>> = dao.getAllContacts()
@@ -35,7 +41,8 @@ class MessengerRepository(private val dao: MessengerDao) {
         replyToId: Long? = null,
         replyToText: String? = null,
         type: MessageType = MessageType.TEXT,
-        voiceDurationSeconds: Int = 0
+        voiceDurationSeconds: Int = 0,
+        myHandle: String = "me"
     ) {
         val now = System.currentTimeMillis()
         val expiresAt = if (isDisappearing && disappearingTimerSeconds > 0) {
@@ -64,18 +71,34 @@ class MessengerRepository(private val dao: MessengerDao) {
 
         // Update conversation last message & timestamp
         val preview = if (type == MessageType.VOICE) "🎤 Voice message (${voiceDurationSeconds}s)" else text
-        // Update conversation summary
-        dao.getConversationById(conversationId).collect { conv ->
-            if (conv != null) {
-                dao.updateConversation(
-                    conv.copy(
-                        lastMessage = preview,
-                        lastTimestamp = now
-                    )
+        val conv = dao.getConversationById(conversationId).firstOrNull()
+        if (conv != null) {
+            dao.updateConversation(
+                conv.copy(
+                    lastMessage = preview,
+                    lastTimestamp = now
                 )
-            }
-            return@collect
+            )
+
+            // Relay via Firebase Cloud if active
+            cloudService?.sendCloudMessage(
+                senderHandle = myHandle,
+                recipientHandle = conv.peerHandle,
+                cipherText = cipher,
+                type = type,
+                voiceDurationSeconds = voiceDurationSeconds,
+                disappearingTimerSeconds = disappearingTimerSeconds,
+                replyToText = replyToText
+            )
         }
+    }
+
+    suspend fun searchCloudUser(handle: String): CloudUser? {
+        return cloudService?.searchUserByHandle(handle)
+    }
+
+    suspend fun registerCloudUser(handle: String, name: String, publicKey: String): Boolean {
+        return cloudService?.registerUser(handle, name, publicKey) ?: false
     }
 
     suspend fun receiveSimulatedReply(

@@ -181,6 +181,10 @@ class MainActivity : ComponentActivity() {
                                 onCreateContactAndChat = { name, handle ->
                                     viewModel.createCustomContactAndChat(name, handle)
                                 },
+                                onSearchCloudPeer = { handle, onResult ->
+                                    viewModel.searchAndAddCloudPeer(handle, onResult)
+                                },
+                                isSearchingCloud = uiState.isSearchingCloud,
                                 onDismiss = { viewModel.setNewChatDialogOpen(false) }
                             )
                         }

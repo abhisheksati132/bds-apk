@@ -1,1 +1,8 @@
-{"name":"Private Messenger","description":"Clean, minimalist private messaging app with encrypted end-to-end local chats, self-destruct timers, security PIN lock, privacy contacts, and real-time conversation views.","requestFramePermissions":[],"majorCapabilities":["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]}
+{
+  "name": "Private Messenger",
+  "description": "Clean, minimalist private messaging app with encrypted end-to-end local chats, self-destruct timers, security PIN lock, privacy contacts, and real-time conversation views.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

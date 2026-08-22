@@ -6,9 +6,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,11 +27,14 @@ fun NewChatDialog(
     contacts: List<ContactEntity>,
     onSelectContact: (ContactEntity) -> Unit,
     onCreateContactAndChat: (name: String, handle: String) -> Unit,
+    onSearchCloudPeer: (handle: String, onResult: (Boolean, String) -> Unit) -> Unit = { _, _ -> },
+    isSearchingCloud: Boolean = false,
     onDismiss: () -> Unit
 ) {
     var isAddingCustom by remember { mutableStateOf(false) }
     var customName by remember { mutableStateOf("") }
     var customHandle by remember { mutableStateOf("") }
+    var lookupStatusMessage by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -44,28 +48,45 @@ fun NewChatDialog(
             if (isAddingCustom) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Enter a privacy handle or nickname. No phone number or email is needed.",
+                        text = "Enter a peer's @handle to connect live via Firebase Cloud Relay or local encrypted channel:",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
                     OutlinedTextField(
-                        value = customName,
-                        onValueChange = { customName = it },
-                        label = { Text("Display Name") },
-                        placeholder = { Text("e.g. Elena Rostova") },
+                        value = customHandle,
+                        onValueChange = {
+                            customHandle = it.lowercase().replace(" ", "")
+                            lookupStatusMessage = null
+                        },
+                        label = { Text("Peer @Handle") },
+                        placeholder = { Text("e.g. alex.8821") },
+                        prefix = { Text("@") },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth().testTag("input_new_contact_name")
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_new_contact_handle")
                     )
 
                     OutlinedTextField(
-                        value = customHandle,
-                        onValueChange = { customHandle = it },
-                        label = { Text("Privacy Handle") },
-                        placeholder = { Text("e.g. elena.4019") },
+                        value = customName,
+                        onValueChange = { customName = it },
+                        label = { Text("Display Nickname (Optional)") },
+                        placeholder = { Text("e.g. Alex") },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth().testTag("input_new_contact_handle")
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("input_new_contact_name")
                     )
+
+                    if (lookupStatusMessage != null) {
+                        Text(
+                            text = lookupStatusMessage!!,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                    }
                 }
             } else {
                 Column(
@@ -93,7 +114,7 @@ fun NewChatDialog(
                                 tint = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Text(
-                                text = "Enter Privacy Handle / Code",
+                                text = "Enter Privacy Handle / Connect Cloud",
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 fontSize = 13.sp
@@ -108,37 +129,52 @@ fun NewChatDialog(
                         modifier = Modifier.padding(vertical = 6.dp)
                     )
 
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        items(contacts, key = { it.handle }) { contact ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .clickable { onSelectContact(contact) }
-                                    .padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                AvatarView(
-                                    name = contact.name,
-                                    bgHex = contact.avatarBgHex,
-                                    textHex = contact.avatarTextHex,
-                                    size = 40.dp
-                                )
-                                Column {
-                                    Text(
-                                        text = contact.name,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 14.sp
+                    if (contacts.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "No saved contacts yet",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(contacts, key = { it.handle }) { contact ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .clickable { onSelectContact(contact) }
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    AvatarView(
+                                        name = contact.name,
+                                        bgHex = contact.avatarBgHex,
+                                        textHex = contact.avatarTextHex,
+                                        size = 40.dp
                                     )
-                                    Text(
-                                        text = "@${contact.handle}",
-                                        fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    Column {
+                                        Text(
+                                            text = contact.name,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 14.sp
+                                        )
+                                        Text(
+                                            text = "@${contact.handle}",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -150,14 +186,26 @@ fun NewChatDialog(
             if (isAddingCustom) {
                 Button(
                     onClick = {
-                        if (customName.isNotBlank() && customHandle.isNotBlank()) {
-                            onCreateContactAndChat(customName.trim(), customHandle.trim())
+                        val handle = customHandle.trim().replace("@", "")
+                        val name = customName.trim().ifEmpty { "@$handle" }
+                        if (handle.isNotBlank()) {
+                            onSearchCloudPeer(handle) { success, msg ->
+                                lookupStatusMessage = msg
+                            }
                         }
                     },
-                    enabled = customName.isNotBlank() && customHandle.isNotBlank(),
+                    enabled = customHandle.isNotBlank() && !isSearchingCloud,
                     modifier = Modifier.testTag("btn_create_contact_chat")
                 ) {
-                    Text("Start Chat")
+                    if (isSearchingCloud) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    } else {
+                        Text("Connect & Chat")
+                    }
                 }
             }
         },
@@ -166,6 +214,7 @@ fun NewChatDialog(
                 onClick = {
                     if (isAddingCustom) {
                         isAddingCustom = false
+                        lookupStatusMessage = null
                     } else {
                         onDismiss()
                     }
@@ -176,3 +225,4 @@ fun NewChatDialog(
         }
     )
 }
+
