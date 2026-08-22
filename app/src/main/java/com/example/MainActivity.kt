@@ -163,7 +163,9 @@ class MainActivity : ComponentActivity() {
                                         onSetPin = { pin -> viewModel.setPin(pin) },
                                         onDisablePin = { viewModel.disablePin() },
                                         onLockAppNow = { viewModel.lockApp() },
-                                        onPanicWipeData = { viewModel.panicWipeAllData() }
+                                        onPanicWipeData = { viewModel.panicWipeAllData() },
+                                        onUpdateHandle = { handle -> viewModel.updateMyHandle(handle) },
+                                        onRotateKeys = { viewModel.rotateMyKeys() }
                                     )
                                 }
                             }

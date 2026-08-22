@@ -29,12 +29,15 @@ fun VaultSecurityScreen(
     onDisablePin: () -> Unit,
     onLockAppNow: () -> Unit,
     onPanicWipeData: () -> Unit,
+    onUpdateHandle: (String) -> Unit = {},
+    onRotateKeys: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showPinDialog by remember { mutableStateOf(false) }
     var pinInput by remember { mutableStateOf("") }
     var showPanicConfirm by remember { mutableStateOf(false) }
-    var showFingerprintInfo by remember { mutableStateOf(false) }
+    var showHandleDialog by remember { mutableStateOf(false) }
+    var handleInput by remember { mutableStateOf(uiState.myHandle) }
 
     val scrollState = rememberScrollState()
 
@@ -95,25 +98,59 @@ fun VaultSecurityScreen(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    Text(text = "Privacy Handle:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
-                    Text(
-                        text = "@${uiState.myHandle}",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(text = "Privacy Handle:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                            Text(
+                                text = "@${uiState.myHandle}",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                        FilledTonalButton(
+                            onClick = {
+                                handleInput = uiState.myHandle
+                                showHandleDialog = true
+                            },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("Edit Handle", fontSize = 12.sp)
+                        }
+                    }
 
-                    Text(text = "Public Key Fingerprint (ECDH):", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
-                    Text(
-                        text = uiState.myPublicKey,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(text = "Public Key Fingerprint (ECDH):", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                            Text(
+                                text = uiState.myPublicKey,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+
+                        IconButton(onClick = onRotateKeys) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Rotate Keys",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                 }
             }
 
@@ -397,6 +434,47 @@ fun VaultSecurityScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showPanicConfirm = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Edit Handle Dialog
+    if (showHandleDialog) {
+        AlertDialog(
+            onDismissRequest = { showHandleDialog = false },
+            title = { Text("Edit Privacy Handle") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Choose your custom anonymous handle for peers to discover and initiate encrypted chats with you:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = handleInput,
+                        onValueChange = { handleInput = it.lowercase().replace(" ", "") },
+                        placeholder = { Text("e.g. shadow.99") },
+                        prefix = { Text("@") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (handleInput.isNotBlank()) {
+                            onUpdateHandle(handleInput)
+                            showHandleDialog = false
+                        }
+                    },
+                    enabled = handleInput.isNotBlank()
+                ) {
+                    Text("Save Handle")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showHandleDialog = false }) { Text("Cancel") }
             }
         )
     }

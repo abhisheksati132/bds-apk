@@ -317,6 +317,18 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    fun updateMyHandle(newHandle: String) {
+        val clean = if (newHandle.startsWith("@")) newHandle.substring(1) else newHandle
+        if (clean.isNotBlank()) {
+            _uiState.update { it.copy(myHandle = clean.trim()) }
+        }
+    }
+
+    fun rotateMyKeys() {
+        val newKey = "ECDH-P256: " + CryptoHelper.generateFingerprint(_uiState.value.myHandle + System.currentTimeMillis())
+        _uiState.update { it.copy(myPublicKey = newKey) }
+    }
+
     fun panicWipeAllData() {
         viewModelScope.launch {
             repository.panicWipeVault()
