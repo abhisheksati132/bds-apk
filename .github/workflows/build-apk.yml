@@ -50,6 +50,9 @@ jobs:
         id: get_version
         run: |
           VERSION=$(grep "versionName =" app/build.gradle.kts | head -1 | awk -F '"' '{print $2}')
+          if [ -z "$VERSION" ]; then
+            VERSION="1.2.0"
+          fi
           echo "VERSION=v$VERSION" >> $GITHUB_ENV
           echo "Building itas version v$VERSION"
 
@@ -61,5 +64,8 @@ jobs:
           name: "itas ${{ env.VERSION }}"
           body: "Direct APK build for itas ${{ env.VERSION }}. Download `itas.apk` below and install directly on your phone."
           files: release-apk/itas.apk
+          make_latest: true
+          prerelease: false
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
