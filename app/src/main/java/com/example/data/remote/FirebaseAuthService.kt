@@ -29,6 +29,14 @@ class FirebaseAuthService(private val context: Context) {
 
     init {
         try {
+            if (FirebaseApp.getApps(context).isEmpty()) {
+                try {
+                    FirebaseApp.initializeApp(context)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Eager FirebaseApp.initializeApp: ${e.message}")
+                }
+            }
+
             if (FirebaseApp.getApps(context).isNotEmpty()) {
                 auth = FirebaseAuth.getInstance()
                 auth?.addAuthStateListener { fbAuth ->
@@ -137,6 +145,20 @@ class FirebaseAuthService(private val context: Context) {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Google Sign-In failed: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun signInAnonymously(): Result<AuthUser> = withContext(Dispatchers.IO) {
+        val fbAuth = auth ?: return@withContext Result.failure(IllegalStateException("Firebase Auth is not initialized"))
+        try {
+            val result = fbAuth.signInAnonymously().await()
+            val user = result.user ?: return@withContext Result.failure(IllegalStateException("Anonymous user is null"))
+            val authUser = user.toAuthUser()
+            _currentUser.value = authUser
+            Result.success(authUser)
+        } catch (e: Exception) {
+            Log.e(TAG, "Anonymous sign-in failed: ${e.message}")
             Result.failure(e)
         }
     }

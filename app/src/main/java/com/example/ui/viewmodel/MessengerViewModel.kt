@@ -264,7 +264,14 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
         if (clean.isNotBlank()) {
             prefs.edit().putString("saved_handle", clean).putBoolean("is_guest", true).apply()
             _uiState.update { it.copy(myHandle = clean, isGuestUser = true) }
-            registerAndListenForHandle(clean)
+            viewModelScope.launch {
+                try {
+                    authService.signInAnonymously()
+                } catch (e: Exception) {
+                    android.util.Log.w("MessengerViewModel", "Anonymous auth note: ${e.message}")
+                }
+                registerAndListenForHandle(clean)
+            }
         }
     }
 
@@ -595,11 +602,6 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
             )
 
             _uiState.update { it.copy(replyingToMessage = null) }
-
-            // If in local/standalone mode, simulate peer auto-reply for testing
-            if (!cloudService.isCloudAvailable()) {
-                triggerSimulatedPeerReply(conversationId, text)
-            }
         }
     }
 
@@ -633,27 +635,6 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
             setCreateGroupDialogOpen(false)
             setNewChatDialogOpen(false)
             openConversation(convId)
-        }
-    }
-
-    private fun triggerSimulatedPeerReply(conversationId: Long, sentText: String) {
-        viewModelScope.launch {
-            delay(1200)
-            _uiState.update { it.copy(isPeerTyping = true) }
-            delay(1600)
-            _uiState.update { it.copy(isPeerTyping = false) }
-
-            val response = when {
-                sentText.contains("?", ignoreCase = true) ->
-                    "Everything is synchronized and zero-knowledge encrypted on our side! 🔒"
-                sentText.contains("hello", ignoreCase = true) || sentText.contains("hey", ignoreCase = true) ->
-                    "Hey! Glad you reached out on the secure channel."
-                sentText.contains("timer", ignoreCase = true) || sentText.contains("disappear", ignoreCase = true) ->
-                    "Disappearing timer acknowledged. Messages will self-destruct seamlessly."
-                else -> "Received securely. Key verification check passed."
-            }
-
-            repository.receiveSimulatedReply(conversationId, response)
         }
     }
 

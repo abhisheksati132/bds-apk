@@ -81,6 +81,14 @@ class FirebaseCloudService(
 
     private fun initFirebase() {
         try {
+            if (FirebaseApp.getApps(context).isEmpty()) {
+                try {
+                    FirebaseApp.initializeApp(context)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Eager FirebaseApp.initializeApp: ${e.message}")
+                }
+            }
+
             if (FirebaseApp.getApps(context).isNotEmpty()) {
                 firestore = FirebaseFirestore.getInstance()
                 try {
