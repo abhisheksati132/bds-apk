@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.ContactEntity
@@ -42,6 +43,7 @@ fun ContactsScreen(
     onSearchCloudPeer: (handle: String, onResult: (Boolean, String) -> Unit) -> Unit,
     onBlockUser: (String) -> Unit = {},
     onUnblockUser: (String) -> Unit = {},
+    onDeleteContact: (String) -> Unit = {},
     isSearchingCloud: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -223,7 +225,8 @@ fun ContactsScreen(
                             onVoiceCallClick = { onStartCallWithUser(contact.name, contact.handle, false) },
                             onVideoCallClick = { onStartCallWithUser(contact.name, contact.handle, true) },
                             onBlockClick = { onBlockUser(contact.handle) },
-                            onUnblockClick = { onUnblockUser(contact.handle) }
+                            onUnblockClick = { onUnblockUser(contact.handle) },
+                            onDeleteContact = { onDeleteContact(contact.handle) }
                         )
                     }
                 }
@@ -495,7 +498,8 @@ fun LocalContactCard(
     onVoiceCallClick: () -> Unit,
     onVideoCallClick: () -> Unit,
     onBlockClick: () -> Unit = {},
-    onUnblockClick: () -> Unit = {}
+    onUnblockClick: () -> Unit = {},
+    onDeleteContact: () -> Unit = {}
 ) {
     var showBlockMenu by remember { mutableStateOf(false) }
 
@@ -523,57 +527,49 @@ fun LocalContactCard(
                 textHex = if (isBlocked) "#FFFFFF" else contact.avatarTextHex,
                 size = 40.dp,
                 imageUrl = contact.avatarUrl,
-                isOnline = if (isBlocked) false else isOnline
+                isOnline = isOnline && !isBlocked
             )
 
-            Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = contact.name,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 14.sp,
-                        maxLines = 1,
-                        color = if (isBlocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
-                    )
-                    if (!isBlocked && contact.isVerified) {
-                        Icon(
-                            imageVector = Icons.Default.VerifiedUser,
-                            contentDescription = "Verified",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(13.dp)
-                        )
-                    }
-                }
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
                 Text(
-                    text = if (isBlocked) "Blocked" else if (isOnline) "@${contact.handle} • online" else "@${contact.handle}",
-                    fontSize = 12.sp,
+                    text = if (isBlocked) "${contact.name} (Blocked)" else contact.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isBlocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
-                    color = if (isBlocked) MaterialTheme.colorScheme.error else if (isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "@${contact.handle}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 if (!isBlocked) {
-                    IconButton(onClick = onVoiceCallClick, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = onVoiceCallClick, modifier = Modifier.size(36.dp)) {
                         Icon(
                             imageVector = Icons.Default.Call,
                             contentDescription = "Voice Call",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
-                    IconButton(onClick = onVideoCallClick, modifier = Modifier.size(32.dp)) {
+
+                    IconButton(onClick = onVideoCallClick, modifier = Modifier.size(36.dp)) {
                         Icon(
                             imageVector = Icons.Default.Videocam,
                             contentDescription = "Video Call",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
@@ -615,6 +611,17 @@ fun LocalContactCard(
                                 }
                             )
                         }
+
+                        DropdownMenuItem(
+                            text = { Text("Delete Contact", color = MaterialTheme.colorScheme.error) },
+                            onClick = {
+                                showBlockMenu = false
+                                onDeleteContact()
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                            }
+                        )
                     }
                 }
             }

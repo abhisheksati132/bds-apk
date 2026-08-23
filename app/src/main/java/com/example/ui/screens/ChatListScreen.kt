@@ -71,6 +71,7 @@ fun ChatListScreen(
     onOpenAuth: () -> Unit = {},
     onDeleteConversation: (Long) -> Unit = {},
     onClearChat: (Long) -> Unit = {},
+    onTogglePinConversation: (Long, Boolean) -> Unit = { _, _ -> },
     onSearchQueryChanged: (String) -> Unit,
     onFilterSelected: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -484,6 +485,29 @@ fun ChatListScreen(
                 },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    val id = conv.id
+                                    val isPinned = conv.isPinned
+                                    selectedConvForOptions = null
+                                    onTogglePinConversation(id, isPinned)
+                                    Toast.makeText(context, if (isPinned) "Chat unpinned" else "Chat pinned to top", Toast.LENGTH_SHORT).show()
+                                },
+                            color = Color.Transparent
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.PushPin, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(if (conv.isPinned) "Unpin Conversation" else "Pin to Top", fontSize = 14.sp)
+                            }
+                        }
+
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()

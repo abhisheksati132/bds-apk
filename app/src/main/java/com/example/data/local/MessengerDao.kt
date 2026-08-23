@@ -29,6 +29,9 @@ interface MessengerDao {
     @Query("UPDATE conversations SET disappearingTimerSeconds = :timerSeconds WHERE id = :conversationId")
     suspend fun updateDisappearingTimer(conversationId: Long, timerSeconds: Long)
 
+    @Query("UPDATE conversations SET isPinned = :isPinned WHERE id = :id")
+    suspend fun updateConversationPinned(id: Long, isPinned: Boolean)
+
     @Query("DELETE FROM conversations WHERE id = :id")
     suspend fun deleteConversation(id: Long)
 

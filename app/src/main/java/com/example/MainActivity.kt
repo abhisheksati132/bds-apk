@@ -266,6 +266,7 @@ class MainActivity : ComponentActivity() {
                                                     onOpenAuth = { viewModel.setAuthDialogOpen(true) },
                                                     onDeleteConversation = { id -> viewModel.deleteConversation(id) },
                                                     onClearChat = { id -> viewModel.clearChat(id) },
+                                                    onTogglePinConversation = { id, isPinned -> viewModel.togglePinConversation(id, isPinned) },
                                                     onSearchQueryChanged = { q -> viewModel.setSearchQuery(q) },
                                                     onFilterSelected = { f -> viewModel.setFilter(f) }
                                                 )
@@ -294,6 +295,7 @@ class MainActivity : ComponentActivity() {
                                                     },
                                                     onBlockUser = { handle -> viewModel.blockUser(handle) },
                                                     onUnblockUser = { handle -> viewModel.unblockUser(handle) },
+                                                    onDeleteContact = { handle -> viewModel.deleteContact(handle) },
                                                     isSearchingCloud = uiState.isSearchingCloud
                                                 )
                                             }

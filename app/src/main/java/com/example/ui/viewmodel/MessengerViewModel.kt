@@ -688,6 +688,18 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    fun togglePinConversation(conversationId: Long, isPinned: Boolean) {
+        viewModelScope.launch {
+            repository.setConversationPinned(conversationId, !isPinned)
+        }
+    }
+
+    fun deleteContact(handle: String) {
+        viewModelScope.launch {
+            repository.deleteContact(handle)
+        }
+    }
+
     fun deleteConversation(conversationId: Long) {
         closeConversation()
         viewModelScope.launch {

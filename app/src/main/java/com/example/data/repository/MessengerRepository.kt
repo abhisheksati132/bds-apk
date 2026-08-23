@@ -337,6 +337,14 @@ class MessengerRepository(
         dao.updateDisappearingTimer(conversationId, timerSeconds)
     }
 
+    suspend fun setConversationPinned(conversationId: Long, isPinned: Boolean) {
+        dao.updateConversationPinned(conversationId, isPinned)
+    }
+
+    suspend fun deleteContact(handle: String) {
+        dao.deleteContact(handle)
+    }
+
     suspend fun deleteConversation(conversationId: Long) {
         dao.deleteAllMessagesInConversation(conversationId)
         dao.deleteConversation(conversationId)
