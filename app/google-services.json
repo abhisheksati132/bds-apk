@@ -1,4 +1,4 @@
-﻿{
+{
   "project_info": {
     "project_number": "991162599567",
     "project_id": "bds-apk",
@@ -13,6 +13,14 @@
         }
       },
       "oauth_client": [
+        {
+          "client_id": "991162599567-lud3dfp8ctotn62ot1uvhs2v2uernq2l.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.privatemessenger.wzvyq",
+            "certificate_hash": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+          }
+        },
         {
           "client_id": "991162599567-dgjska9msq0keo4om1bhejub29ae0f44.apps.googleusercontent.com",
           "client_type": 3
