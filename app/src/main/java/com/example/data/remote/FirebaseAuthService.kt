@@ -109,17 +109,17 @@ class FirebaseAuthService(private val context: Context) {
             val resId = activityContext.resources.getIdentifier("default_web_client_id", "string", activityContext.packageName)
             val webClientId = if (resId != 0) activityContext.getString(resId) else null
 
-            val googleIdOptionBuilder = GetGoogleIdOption.Builder()
-                .setFilterByAuthorizedAccounts(false)
-                .setAutoSelectEnabled(false)
-
-            if (!webClientId.isNullOrBlank()) {
-                googleIdOptionBuilder.setServerClientId(webClientId)
-            } else {
-                Log.w(TAG, "No default_web_client_id found in resources, trying credential request without serverClientId")
+            if (webClientId.isNullOrBlank()) {
+                return@withContext Result.failure(
+                    IllegalStateException("Google Sign-In is not enabled in Firebase Console yet (missing Web Client ID). Please sign in with Email & Password or use Guest Mode!")
+                )
             }
 
-            val googleIdOption = googleIdOptionBuilder.build()
+            val googleIdOption = GetGoogleIdOption.Builder()
+                .setFilterByAuthorizedAccounts(false)
+                .setAutoSelectEnabled(false)
+                .setServerClientId(webClientId)
+                .build()
 
             val request = GetCredentialRequest.Builder()
                 .addCredentialOption(googleIdOption)
