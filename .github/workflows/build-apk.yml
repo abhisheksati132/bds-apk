@@ -38,7 +38,6 @@ jobs:
         run: |
           mkdir -p release-apk
           cp app/build/outputs/apk/debug/*.apk release-apk/itas.apk
-          cp app/build/outputs/apk/debug/*.apk release-apk/PrivateMessenger.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -54,8 +53,6 @@ jobs:
           tag_name: latest
           name: "itas Latest APK"
           body: "Direct APK build for itas. Download `itas.apk` below and install directly on your phone."
-          files: |
-            release-apk/itas.apk
-            release-apk/PrivateMessenger.apk
+          files: release-apk/itas.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
