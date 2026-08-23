@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -111,9 +112,9 @@ fun ContactsScreen(
             FloatingActionButton(
                 onClick = { showAddDialog = true },
                 containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier
-                    .padding(bottom = 80.dp)
+                    .padding(bottom = 72.dp)
                     .testTag("fab_add_contact")
             ) {
                 Icon(Icons.Default.PersonAdd, contentDescription = "Add Contact")
@@ -157,11 +158,9 @@ fun ContactsScreen(
             )
 
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 80.dp),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 88.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 // Cloud Registered Users
                 if (filteredCloudUsers.isNotEmpty()) {
@@ -377,22 +376,21 @@ fun CloudContactCard(
 ) {
     var showBlockMenu by remember { mutableStateOf(false) }
 
-    Card(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(14.dp))
             .clickable { if (!isBlocked) onChatClick() }
             .testTag("card_cloud_user_${user.handle}"),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isBlocked) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        shape = RoundedCornerShape(14.dp),
+        color = if (isBlocked) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -400,7 +398,7 @@ fun CloudContactCard(
                 name = user.displayName,
                 bgHex = if (isBlocked) "#B00020" else user.avatarBgHex,
                 textHex = if (isBlocked) "#FFFFFF" else user.avatarTextHex,
-                size = 46.dp,
+                size = 40.dp,
                 imageUrl = user.avatarUrl,
                 isOnline = if (isBlocked) false else user.isOnline
             )
@@ -409,19 +407,15 @@ fun CloudContactCard(
                 Text(
                     text = user.displayName,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 15.sp,
+                    fontSize = 14.sp,
+                    maxLines = 1,
                     color = if (isBlocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "@${user.handle}",
+                    text = if (isBlocked) "Blocked" else if (user.isOnline) "@${user.handle} • online" else "@${user.handle}",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = if (isBlocked) "🚫 Blocked" else if (user.isOnline) "🟢 Online Now" else "⚪ Offline",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = if (isBlocked) MaterialTheme.colorScheme.error else if (user.isOnline) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
+                    maxLines = 1,
+                    color = if (isBlocked) MaterialTheme.colorScheme.error else if (user.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -430,31 +424,31 @@ fun CloudContactCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (!isBlocked) {
-                    IconButton(onClick = onVoiceCallClick, modifier = Modifier.size(36.dp)) {
+                    IconButton(onClick = onVoiceCallClick, modifier = Modifier.size(32.dp)) {
                         Icon(
                             imageVector = Icons.Default.Call,
                             contentDescription = "Voice Call",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
-                    IconButton(onClick = onVideoCallClick, modifier = Modifier.size(36.dp)) {
+                    IconButton(onClick = onVideoCallClick, modifier = Modifier.size(32.dp)) {
                         Icon(
                             imageVector = Icons.Default.Videocam,
                             contentDescription = "Video Call",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
 
                 Box {
-                    IconButton(onClick = { showBlockMenu = true }, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = { showBlockMenu = true }, modifier = Modifier.size(28.dp)) {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
                             contentDescription = "More user options",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
 
@@ -505,22 +499,21 @@ fun LocalContactCard(
 ) {
     var showBlockMenu by remember { mutableStateOf(false) }
 
-    Card(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(14.dp))
             .clickable { if (!isBlocked) onChatClick() }
             .testTag("card_contact_${contact.handle}"),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isBlocked) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        shape = RoundedCornerShape(14.dp),
+        color = if (isBlocked) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -528,7 +521,7 @@ fun LocalContactCard(
                 name = contact.name,
                 bgHex = if (isBlocked) "#B00020" else contact.avatarBgHex,
                 textHex = if (isBlocked) "#FFFFFF" else contact.avatarTextHex,
-                size = 46.dp,
+                size = 40.dp,
                 imageUrl = contact.avatarUrl,
                 isOnline = if (isBlocked) false else isOnline
             )
@@ -541,7 +534,8 @@ fun LocalContactCard(
                     Text(
                         text = contact.name,
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp,
+                        fontSize = 14.sp,
+                        maxLines = 1,
                         color = if (isBlocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                     )
                     if (!isBlocked && contact.isVerified) {
@@ -549,20 +543,15 @@ fun LocalContactCard(
                             imageVector = Icons.Default.VerifiedUser,
                             contentDescription = "Verified",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(14.dp)
+                            modifier = Modifier.size(13.dp)
                         )
                     }
                 }
                 Text(
-                    text = "@${contact.handle}",
+                    text = if (isBlocked) "Blocked" else if (isOnline) "@${contact.handle} • online" else "@${contact.handle}",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = if (isBlocked) "🚫 Blocked" else if (isOnline) "🟢 Online Now" else "⚪ Offline",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = if (isBlocked) MaterialTheme.colorScheme.error else if (isOnline) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
+                    maxLines = 1,
+                    color = if (isBlocked) MaterialTheme.colorScheme.error else if (isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -571,31 +560,31 @@ fun LocalContactCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (!isBlocked) {
-                    IconButton(onClick = onVoiceCallClick, modifier = Modifier.size(36.dp)) {
+                    IconButton(onClick = onVoiceCallClick, modifier = Modifier.size(32.dp)) {
                         Icon(
                             imageVector = Icons.Default.Call,
                             contentDescription = "Voice Call",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
-                    IconButton(onClick = onVideoCallClick, modifier = Modifier.size(36.dp)) {
+                    IconButton(onClick = onVideoCallClick, modifier = Modifier.size(32.dp)) {
                         Icon(
                             imageVector = Icons.Default.Videocam,
                             contentDescription = "Video Call",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
 
                 Box {
-                    IconButton(onClick = { showBlockMenu = true }, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = { showBlockMenu = true }, modifier = Modifier.size(28.dp)) {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
                             contentDescription = "More contact options",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
 

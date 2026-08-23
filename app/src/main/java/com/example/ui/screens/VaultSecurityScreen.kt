@@ -598,9 +598,9 @@ fun VaultSecurityScreen(
                             )
                             Text(
                                 text = when (uiState.isDarkMode) {
-                                    true -> "Pure AMOLED Black"
-                                    false -> "Clean White"
-                                    null -> "System Default"
+                                    true -> "Dark"
+                                    false -> "Light"
+                                    null -> "System"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -615,19 +615,19 @@ fun VaultSecurityScreen(
                         FilterChip(
                             selected = uiState.isDarkMode == true,
                             onClick = { onToggleDarkMode(true) },
-                            label = { Text("Dark (AMOLED)", fontSize = 11.sp) },
+                            label = { Text("Dark", fontSize = 12.sp) },
                             modifier = Modifier.weight(1f)
                         )
                         FilterChip(
                             selected = uiState.isDarkMode == false,
                             onClick = { onToggleDarkMode(false) },
-                            label = { Text("Light (White)", fontSize = 11.sp) },
+                            label = { Text("Light", fontSize = 12.sp) },
                             modifier = Modifier.weight(1f)
                         )
                         FilterChip(
                             selected = uiState.isDarkMode == null,
                             onClick = { onToggleDarkMode(null) },
-                            label = { Text("System", fontSize = 11.sp) },
+                            label = { Text("System", fontSize = 12.sp) },
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -662,8 +662,9 @@ fun VaultSecurityScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.SystemUpdate,
@@ -677,27 +678,28 @@ fun VaultSecurityScreen(
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = "Version ${uiState.currentAppVersion} • Standalone OTA",
+                                    text = "v${uiState.currentAppVersion} • In-App OTA",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
 
-                        Button(
+                        FilledTonalButton(
                             onClick = onCheckForUpdates,
                             enabled = !uiState.isCheckingForUpdate,
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.height(34.dp)
                         ) {
                             if (uiState.isCheckingForUpdate) {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
+                                    modifier = Modifier.size(14.dp),
                                     strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.onPrimary
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
                                 )
                             } else {
-                                Text("Check Now", fontSize = 12.sp)
+                                Text("Check", fontSize = 12.sp, fontWeight = FontWeight.Medium)
                             }
                         }
                     }

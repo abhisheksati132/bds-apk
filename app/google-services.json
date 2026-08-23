@@ -18,6 +18,14 @@
           "client_type": 1,
           "android_info": {
             "package_name": "com.aistudio.privatemessenger.wzvyq",
+            "certificate_hash": "ea13da58fe53fd6bc2b435229b45e072a15eb970"
+          }
+        },
+        {
+          "client_id": "991162599567-lud3dfp8ctotn62ot1uvhs2v2uernq2l.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.privatemessenger.wzvyq",
             "certificate_hash": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
           }
         },
