@@ -1,4 +1,4 @@
-﻿name: Build Android APK
+name: Build Android APK
 
 on:
   push:
@@ -37,13 +37,14 @@ jobs:
       - name: Rename APK for direct download
         run: |
           mkdir -p release-apk
+          cp app/build/outputs/apk/debug/*.apk release-apk/itas.apk
           cp app/build/outputs/apk/debug/*.apk release-apk/PrivateMessenger.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: PrivateMessenger-APK
-          path: release-apk/PrivateMessenger.apk
+          name: itas-APK
+          path: release-apk/itas.apk
           if-no-files-found: error
 
       - name: Create Direct GitHub Release (Raw .APK Download)
@@ -51,8 +52,10 @@ jobs:
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         with:
           tag_name: latest
-          name: "Private Messenger Latest APK"
-          body: "Direct APK build for Android. Download `PrivateMessenger.apk` below and install directly on your phone."
-          files: release-apk/PrivateMessenger.apk
+          name: "itas Latest APK"
+          body: "Direct APK build for itas. Download `itas.apk` below and install directly on your phone."
+          files: |
+            release-apk/itas.apk
+            release-apk/PrivateMessenger.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

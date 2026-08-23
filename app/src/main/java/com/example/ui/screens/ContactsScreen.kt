@@ -406,43 +406,19 @@ fun CloudContactCard(
             )
 
             Column(modifier = Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = user.displayName,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = if (isBlocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
-                    )
-                    if (isBlocked) {
-                        Badge(containerColor = MaterialTheme.colorScheme.error) {
-                            Text(
-                                text = "Blocked",
-                                fontSize = 9.sp,
-                                color = Color.White,
-                                modifier = Modifier.padding(horizontal = 3.dp)
-                            )
-                        }
-                    } else {
-                        Badge(containerColor = MaterialTheme.colorScheme.primaryContainer) {
-                            Text(
-                                text = "Cloud",
-                                fontSize = 9.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.padding(horizontal = 3.dp)
-                            )
-                        }
-                    }
-                }
+                Text(
+                    text = user.displayName,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp,
+                    color = if (isBlocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                )
                 Text(
                     text = "@${user.handle}",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = if (isBlocked) "🚫 Blocked from messaging" else if (user.isOnline) "🟢 Online Now" else "⚪ Offline",
+                    text = if (isBlocked) "🚫 Blocked" else if (user.isOnline) "🟢 Online Now" else "⚪ Offline",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
                     color = if (isBlocked) MaterialTheme.colorScheme.error else if (user.isOnline) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
@@ -558,25 +534,17 @@ fun LocalContactCard(
             )
 
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     Text(
                         text = contact.name,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = FontWeight.SemiBold,
                         fontSize = 15.sp,
                         color = if (isBlocked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                     )
-                    if (isBlocked) {
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Badge(containerColor = MaterialTheme.colorScheme.error) {
-                            Text(
-                                text = "Blocked",
-                                fontSize = 9.sp,
-                                color = Color.White,
-                                modifier = Modifier.padding(horizontal = 3.dp)
-                            )
-                        }
-                    } else if (contact.isVerified) {
-                        Spacer(modifier = Modifier.width(4.dp))
+                    if (!isBlocked && contact.isVerified) {
                         Icon(
                             imageVector = Icons.Default.VerifiedUser,
                             contentDescription = "Verified",
@@ -591,8 +559,9 @@ fun LocalContactCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = if (isBlocked) "🚫 Blocked from messaging" else if (isOnline) "🟢 Online" else "⚪ Offline",
+                    text = if (isBlocked) "🚫 Blocked" else if (isOnline) "🟢 Online Now" else "⚪ Offline",
                     fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
                     color = if (isBlocked) MaterialTheme.colorScheme.error else if (isOnline) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }

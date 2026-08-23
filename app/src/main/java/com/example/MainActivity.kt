@@ -311,7 +311,8 @@ class MainActivity : ComponentActivity() {
                                                     onToggleNotificationSounds = { enabled -> viewModel.toggleNotificationSound(enabled) },
                                                     onSetVibrationPattern = { pattern -> viewModel.setVibrationPattern(pattern) },
                                                     onTestVibration = { viewModel.testVibration() },
-                                                    onCheckForUpdates = { viewModel.checkForUpdates(silent = false) }
+                                                    onCheckForUpdates = { viewModel.checkForUpdates(silent = false) },
+                                                    onSetGithubUpdateToken = { token -> viewModel.setGithubUpdateToken(token) }
                                                 )
                                             }
                                         }

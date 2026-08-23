@@ -95,7 +95,8 @@ data class UiState(
     val updateDownloadBytesProgress: String = "",
     val downloadedUpdateFile: java.io.File? = null,
     val isUpdateReadyToInstall: Boolean = false,
-    val updateStatusMessage: String? = null
+    val updateStatusMessage: String? = null,
+    val githubUpdateToken: String = ""
 ) {
     val isAuthenticated: Boolean
         get() = authUser != null || isGuestUser || myHandle.isNotBlank()
@@ -165,6 +166,11 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             securityPrefs.defaultDisappearingFlow.collect { defaultSec ->
                 _uiState.update { it.copy(defaultDisappearingSeconds = defaultSec) }
+            }
+        }
+        viewModelScope.launch {
+            securityPrefs.githubTokenFlow.collect { token ->
+                _uiState.update { it.copy(githubUpdateToken = token) }
             }
         }
 
@@ -948,7 +954,8 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
                     updateStatusMessage = if (!silent) "Checking for updates..." else null
                 ) 
             }
-            val result = appUpdateManager.checkForUpdates()
+            val token = _uiState.value.githubUpdateToken.ifBlank { null }
+            val result = appUpdateManager.checkForUpdates(githubToken = token)
             result.onSuccess { info ->
                 _uiState.update {
                     it.copy(
@@ -961,15 +968,24 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
                 _uiState.update {
                     it.copy(
                         isCheckingForUpdate = false,
-                        updateStatusMessage = if (!silent) "Could not check updates: ${error.message}" else null
+                        updateStatusMessage = if (!silent) "${error.message}" else null
                     )
                 }
             }
         }
     }
 
+    fun setGithubUpdateToken(token: String) {
+        viewModelScope.launch {
+            securityPrefs.setGithubToken(token)
+            _uiState.update { it.copy(githubUpdateToken = token.trim()) }
+            checkForUpdates(silent = false)
+        }
+    }
+
     fun startDownloadingUpdate() {
         val update = _uiState.value.availableUpdate ?: return
+        val token = _uiState.value.githubUpdateToken.ifBlank { null }
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -978,7 +994,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
                     updateDownloadBytesProgress = ""
                 )
             }
-            val file = appUpdateManager.downloadApk(update.downloadUrl) { progress, currentBytes, totalBytes ->
+            val file = appUpdateManager.downloadApk(update.downloadUrl, githubToken = token) { progress, currentBytes, totalBytes ->
                 val currentMb = String.format(java.util.Locale.getDefault(), "%.1f", currentBytes / (1024f * 1024f))
                 val totalMb = if (totalBytes > 0) String.format(java.util.Locale.getDefault(), "%.1f MB", totalBytes / (1024f * 1024f)) else ""
                 val bytesStr = if (totalMb.isNotEmpty()) "($currentMb / $totalMb)" else "(${currentMb}MB)"

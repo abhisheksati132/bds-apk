@@ -23,6 +23,11 @@ class SecurityPreferencesRepository(private val context: Context) {
         val KEY_DARK_MODE = booleanPreferencesKey("dark_mode_enabled")
         val KEY_NOTIFICATION_SOUNDS = booleanPreferencesKey("notification_sounds_enabled")
         val KEY_VIBRATION_PATTERN = stringPreferencesKey("vibration_pattern")
+        val KEY_GITHUB_TOKEN = stringPreferencesKey("github_update_token")
+    }
+
+    val githubTokenFlow: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[KEY_GITHUB_TOKEN] ?: ""
     }
 
     val isDarkModeFlow: Flow<Boolean?> = context.dataStore.data.map { preferences ->
@@ -97,6 +102,16 @@ class SecurityPreferencesRepository(private val context: Context) {
     suspend fun setVibrationPattern(pattern: String) {
         context.dataStore.edit { preferences ->
             preferences[KEY_VIBRATION_PATTERN] = pattern
+        }
+    }
+
+    suspend fun setGithubToken(token: String) {
+        context.dataStore.edit { preferences ->
+            if (token.isBlank()) {
+                preferences.remove(KEY_GITHUB_TOKEN)
+            } else {
+                preferences[KEY_GITHUB_TOKEN] = token.trim()
+            }
         }
     }
 

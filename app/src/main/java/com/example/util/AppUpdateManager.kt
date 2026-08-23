@@ -3,7 +3,6 @@ package com.example.util
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.util.Log
 import androidx.core.content.FileProvider
 import com.google.firebase.FirebaseApp
@@ -14,7 +13,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
-import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -41,7 +39,7 @@ class AppUpdateManager(private val context: Context) {
         }
     }
 
-    suspend fun checkForUpdates(): Result<AppReleaseInfo?> = withContext(Dispatchers.IO) {
+    suspend fun checkForUpdates(githubToken: String? = null): Result<AppReleaseInfo?> = withContext(Dispatchers.IO) {
         // Method 1: Check Firebase Firestore app_config/latest_release (Works seamlessly even with private GitHub repos!)
         try {
             if (FirebaseApp.getApps(context).isNotEmpty()) {
@@ -79,13 +77,16 @@ class AppUpdateManager(private val context: Context) {
             Log.d(TAG, "Firestore update check skipped: ${e.message}")
         }
 
-        // Method 2: Query GitHub Releases API
+        // Method 2: Query GitHub Releases API (Supports Bearer token for private repos)
         try {
             val url = URL(GITHUB_API_URL)
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 setRequestProperty("User-Agent", "itasApp")
                 setRequestProperty("Accept", "application/vnd.github.v3+json")
+                if (!githubToken.isNullOrBlank()) {
+                    setRequestProperty("Authorization", "Bearer ${githubToken.trim()}")
+                }
                 connectTimeout = 10000
                 readTimeout = 10000
             }
@@ -94,7 +95,9 @@ class AppUpdateManager(private val context: Context) {
             if (responseCode == 404) {
                 Log.w(TAG, "GitHub API returned 404. Repository is private or has no public releases.")
                 return@withContext Result.failure(
-                    IllegalStateException("No public release found (GitHub 404). Note: Private repositories hide releases from anonymous requests.")
+                    IllegalStateException(
+                        "GitHub repository is private (HTTP 404). Add a GitHub Personal Access Token in Settings > App Updates to enable OTA updates."
+                    )
                 )
             } else if (responseCode != 200) {
                 Log.w(TAG, "GitHub API returned HTTP $responseCode")
@@ -118,7 +121,10 @@ class AppUpdateManager(private val context: Context) {
                     val asset = assets.getJSONObject(i)
                     val assetName = asset.optString("name", "")
                     if (assetName.endsWith(".apk", ignoreCase = true)) {
-                        downloadUrl = asset.optString("browser_download_url", "")
+                        // For private repos, we can also use asset URL or browser_download_url
+                        val assetUrl = asset.optString("url", "")
+                        val browserDownloadUrl = asset.optString("browser_download_url", "")
+                        downloadUrl = if (!githubToken.isNullOrBlank() && assetUrl.isNotBlank()) assetUrl else browserDownloadUrl
                         apkSize = asset.optLong("size", 0L)
                         break
                     }
@@ -155,35 +161,53 @@ class AppUpdateManager(private val context: Context) {
 
     suspend fun downloadApk(
         downloadUrl: String,
+        githubToken: String? = null,
         onProgress: (Float, Long, Long) -> Unit
     ): File? = withContext(Dispatchers.IO) {
         try {
             val updateDir = File(context.cacheDir, "updates").apply { if (!exists()) mkdirs() }
-            val apkFile = File(updateDir, "PrivateMessenger.apk")
+            val apkFile = File(updateDir, "itas.apk")
             if (apkFile.exists()) apkFile.delete()
 
+            val isAssetApi = downloadUrl.contains("/releases/assets/")
             val url = URL(downloadUrl)
-            val conn = (url.openConnection() as HttpURLConnection).apply {
-                instanceFollowRedirects = true
-                setRequestProperty("User-Agent", "PrivateMessengerApp")
+            var conn = (url.openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = false // Handle redirect explicitly so auth token isn't leaked to AWS S3
+                setRequestProperty("User-Agent", "itasApp")
+                if (isAssetApi && !githubToken.isNullOrBlank()) {
+                    setRequestProperty("Authorization", "Bearer ${githubToken.trim()}")
+                    setRequestProperty("Accept", "application/octet-stream")
+                } else if (!githubToken.isNullOrBlank()) {
+                    setRequestProperty("Authorization", "Bearer ${githubToken.trim()}")
+                }
                 connectTimeout = 15000
                 readTimeout = 30000
             }
 
-            // Follow redirect manually if needed
-            var redirectConn = conn
             var status = conn.responseCode
-            if (status == HttpURLConnection.HTTP_MOVED_TEMP || status == HttpURLConnection.HTTP_MOVED_PERM || status == 307 || status == 308) {
+            // Follow redirects (GitHub redirects asset download to AWS S3 storage pre-signed URL)
+            while (status == HttpURLConnection.HTTP_MOVED_TEMP || status == HttpURLConnection.HTTP_MOVED_PERM || status == 307 || status == 308) {
                 val newUrl = conn.getHeaderField("Location")
-                redirectConn = (URL(newUrl).openConnection() as HttpURLConnection).apply {
-                    setRequestProperty("User-Agent", "PrivateMessengerApp")
+                conn.disconnect()
+                conn = (URL(newUrl).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = false
+                    setRequestProperty("User-Agent", "itasApp")
+                    // Note: S3 presigned URLs fail if extra Authorization header is sent
+                    connectTimeout = 15000
+                    readTimeout = 30000
                 }
+                status = conn.responseCode
             }
 
-            val contentLength = redirectConn.contentLengthLong
+            if (status != HttpURLConnection.HTTP_OK && status != 206) {
+                Log.e(TAG, "Download failed with HTTP $status")
+                return@withContext null
+            }
+
+            val contentLength = conn.contentLengthLong
             var totalBytesRead = 0L
 
-            redirectConn.inputStream.use { input ->
+            conn.inputStream.use { input ->
                 FileOutputStream(apkFile).use { output ->
                     val buffer = ByteArray(8192)
                     var bytesRead: Int

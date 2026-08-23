@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -42,14 +43,18 @@ fun VaultSecurityScreen(
     onSetVibrationPattern: (String) -> Unit = {},
     onTestVibration: () -> Unit = {},
     onCheckForUpdates: () -> Unit = {},
+    onSetGithubUpdateToken: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val uriHandler = LocalUriHandler.current
     var showPinDialog by remember { mutableStateOf(false) }
     var pinInput by remember { mutableStateOf("") }
     var showPanicConfirm by remember { mutableStateOf(false) }
     var showHandleDialog by remember { mutableStateOf(false) }
     var handleInput by remember { mutableStateOf(uiState.myHandle) }
     var showKeyDetails by remember { mutableStateOf(false) }
+    var showTokenDialog by remember { mutableStateOf(false) }
+    var tokenInput by remember { mutableStateOf(uiState.githubUpdateToken) }
 
     val scrollState = rememberScrollState()
 
@@ -737,6 +742,44 @@ fun VaultSecurityScreen(
                             )
                         }
                     }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    // Actions & Configuration
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                tokenInput = uiState.githubUpdateToken
+                                showTokenDialog = true
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.VpnKey, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (uiState.githubUpdateToken.isNotBlank()) "Token Set" else "Private Repo Token",
+                                fontSize = 11.sp
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                uriHandler.openUri("https://github.com/abhisheksati132/bds-apk/releases")
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Default.Public, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Releases Web", fontSize = 11.sp)
+                        }
+                    }
                 }
             }
 
@@ -895,6 +938,55 @@ fun VaultSecurityScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showHandleDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // GitHub Personal Access Token Dialog (For Private Repositories)
+    if (showTokenDialog) {
+        AlertDialog(
+            onDismissRequest = { showTokenDialog = false },
+            title = { Text("Private Repo Access Token", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "If your GitHub repository is private, enter a GitHub Personal Access Token (classic with 'repo' scope, or fine-grained with read access) to enable automatic in-app updates:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = tokenInput,
+                        onValueChange = { tokenInput = it.trim() },
+                        placeholder = { Text("ghp_xxxxxxxxxxxx") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (tokenInput.isNotBlank()) {
+                        TextButton(
+                            onClick = {
+                                tokenInput = ""
+                                onSetGithubUpdateToken("")
+                                showTokenDialog = false
+                            },
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("Clear Token", fontSize = 12.sp)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onSetGithubUpdateToken(tokenInput)
+                        showTokenDialog = false
+                    }
+                ) {
+                    Text("Save & Check")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTokenDialog = false }) { Text("Cancel") }
             }
         )
     }
