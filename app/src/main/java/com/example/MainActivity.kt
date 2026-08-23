@@ -14,15 +14,20 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -32,12 +37,15 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.remote.CallSignal
+import com.example.ui.components.AvatarView
 import com.example.ui.components.CleanBottomNavBar
 import com.example.ui.dialogs.AppUpdateDialog
 import com.example.ui.dialogs.ForwardMessageDialog
 import com.example.ui.dialogs.UserProfileDialog
 import com.example.ui.screens.*
+import com.example.ui.theme.ErrorRed
 import com.example.ui.theme.MyApplicationTheme
+import com.example.ui.theme.SuccessGreen
 import com.example.ui.viewmodel.MainTab
 import com.example.ui.viewmodel.MessengerViewModel
 
@@ -130,8 +138,8 @@ class MainActivity : ComponentActivity() {
                     PinLockScreen(
                         onUnlock = { pin -> viewModel.unlockWithPin(pin) }
                     )
-                } else if (uiState.activeCall != null) {
-                    // Active Encrypted Call Screen
+                } else if (uiState.activeCall != null && !uiState.isCallMinimized) {
+                    // Active Call Screen (Full-Screen)
                     ActiveCallScreen(
                         peer = uiState.activeCall!!,
                         isVideo = uiState.isVideoCall,
@@ -140,22 +148,24 @@ class MainActivity : ComponentActivity() {
                         isSpeaker = uiState.isCallSpeaker,
                         onToggleMute = { viewModel.toggleMute() },
                         onToggleSpeaker = { viewModel.toggleSpeaker() },
-                        onEndCall = { viewModel.endCall() }
+                        onEndCall = { viewModel.endCall() },
+                        onMinimizeCall = { viewModel.setCallMinimized(true) }
                     )
                 } else {
-                    AnimatedContent(
-                        targetState = uiState.activeConversationId,
-                        transitionSpec = {
-                            if (targetState != null) {
-                                (slideInHorizontally(animationSpec = tween(320)) { it } + fadeIn(animationSpec = tween(320)))
-                                    .togetherWith(slideOutHorizontally(animationSpec = tween(320)) { -it / 4 } + fadeOut(animationSpec = tween(320)))
-                            } else {
-                                (slideInHorizontally(animationSpec = tween(320)) { -it / 4 } + fadeIn(animationSpec = tween(320)))
-                                    .togetherWith(slideOutHorizontally(animationSpec = tween(320)) { it } + fadeOut(animationSpec = tween(320)))
-                            }
-                        },
-                        label = "convTransition"
-                    ) { activeConvId ->
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        AnimatedContent(
+                            targetState = uiState.activeConversationId,
+                            transitionSpec = {
+                                if (targetState != null) {
+                                    (slideInHorizontally(animationSpec = tween(320)) { it } + fadeIn(animationSpec = tween(320)))
+                                        .togetherWith(slideOutHorizontally(animationSpec = tween(320)) { -it / 4 } + fadeOut(animationSpec = tween(320)))
+                                } else {
+                                    (slideInHorizontally(animationSpec = tween(320)) { -it / 4 } + fadeIn(animationSpec = tween(320)))
+                                        .togetherWith(slideOutHorizontally(animationSpec = tween(320)) { it } + fadeOut(animationSpec = tween(320)))
+                                }
+                            },
+                            label = "convTransition"
+                        ) { activeConvId ->
                         if (activeConvId != null) {
                             // Responsive Live Conversation Screen
                             val currentConv by viewModel.currentConversation(activeConvId)
@@ -320,7 +330,98 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         }
+
+                        // Floating Mini-Call Overlay Pill (Multitasking PIP)
+                        if (uiState.activeCall != null && uiState.isCallMinimized) {
+                            val durationText = "${uiState.callDurationSeconds / 60}:${String.format(java.util.Locale.getDefault(), "%02d", uiState.callDurationSeconds % 60)}"
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .windowInsetsPadding(WindowInsets.statusBars)
+                                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                                    .clip(RoundedCornerShape(24.dp))
+                                    .clickable { viewModel.setCallMinimized(false) }
+                                    .align(Alignment.TopCenter),
+                                shape = RoundedCornerShape(24.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                                shadowElevation = 8.dp
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .clip(CircleShape)
+                                                .background(SuccessGreen)
+                                        )
+                                        AvatarView(
+                                            name = uiState.activeCall!!.peerName,
+                                            bgHex = uiState.activeCall!!.avatarBgColorHex,
+                                            textHex = uiState.activeCall!!.avatarTextColorHex,
+                                            size = 32.dp,
+                                            isOnline = true
+                                        )
+                                        Column {
+                                            Text(
+                                                text = uiState.activeCall!!.peerName,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1
+                                            )
+                                            Text(
+                                                text = durationText,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        IconButton(
+                                            onClick = { viewModel.toggleMute() },
+                                            modifier = Modifier.size(34.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (uiState.isCallMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                                                contentDescription = "Mute",
+                                                tint = if (uiState.isCallMuted) ErrorRed else MaterialTheme.colorScheme.onSurface,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                        IconButton(
+                                            onClick = { viewModel.endCall() },
+                                            modifier = Modifier
+                                                .size(34.dp)
+                                                .clip(CircleShape)
+                                                .background(ErrorRed)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CallEnd,
+                                                contentDescription = "End Call",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
+                }
 
                     // In-App Auto-Updater Dialog
                     if (uiState.availableUpdate != null || uiState.isDownloadingUpdate || uiState.isUpdateReadyToInstall) {

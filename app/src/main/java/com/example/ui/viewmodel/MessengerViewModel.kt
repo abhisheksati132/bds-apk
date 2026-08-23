@@ -96,7 +96,8 @@ data class UiState(
     val downloadedUpdateFile: java.io.File? = null,
     val isUpdateReadyToInstall: Boolean = false,
     val updateStatusMessage: String? = null,
-    val githubUpdateToken: String = ""
+    val githubUpdateToken: String = "",
+    val isCallMinimized: Boolean = false
 ) {
     val isAuthenticated: Boolean
         get() = authUser != null || isGuestUser || myHandle.isNotBlank()
@@ -915,6 +916,10 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
         _uiState.update { it.copy(isCallSpeaker = !it.isCallSpeaker) }
     }
 
+    fun setCallMinimized(minimized: Boolean) {
+        _uiState.update { it.copy(isCallMinimized = minimized) }
+    }
+
     fun endCall(sendSignal: Boolean = true) {
         callTimerJob?.cancel()
         val signalId = _uiState.value.activeCallSignalId
@@ -925,7 +930,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
         }
         callStateListener?.remove()
         callStateListener = null
-        _uiState.update { it.copy(activeCall = null, activeCallSignalId = null, callDurationSeconds = 0) }
+        _uiState.update { it.copy(activeCall = null, activeCallSignalId = null, callDurationSeconds = 0, isCallMinimized = false) }
     }
 
     fun postStatus(caption: String) {

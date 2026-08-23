@@ -33,6 +33,7 @@ fun ActiveCallScreen(
     onToggleMute: () -> Unit,
     onToggleSpeaker: () -> Unit,
     onEndCall: () -> Unit,
+    onMinimizeCall: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val durationText = "${durationSeconds / 60}:${String.format(Locale.getDefault(), "%02d", durationSeconds % 60)}"
@@ -44,6 +45,22 @@ fun ActiveCallScreen(
             .padding(24.dp)
             .windowInsetsPadding(WindowInsets.statusBars)
     ) {
+        // Top Minimize Button
+        IconButton(
+            onClick = onMinimizeCall,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .size(42.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Icon(
+                imageVector = Icons.Default.KeyboardArrowDown,
+                contentDescription = "Minimize Call",
+                tint = MaterialTheme.colorScheme.onSurface
+            )
+        }
+
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -53,7 +70,7 @@ fun ActiveCallScreen(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 24.dp)
+                modifier = Modifier.padding(top = 16.dp)
             ) {
                 Text(
                     text = if (durationSeconds == 0) "Calling..." else durationText,

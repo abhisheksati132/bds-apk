@@ -46,6 +46,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,6 +56,9 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.*
 import com.example.ui.components.AvatarView
+import com.example.ui.components.MediaLightboxViewer
+import com.example.ui.theme.ErrorRed
+import com.example.ui.theme.SuccessGreen
 import com.example.ui.viewmodel.UiState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -105,6 +110,7 @@ fun ConversationScreen(
     var previewImageUrl by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
+    val haptic = LocalHapticFeedback.current
 
     var currentDisappearingTimer by remember(conversation.disappearingTimerSeconds) {
         mutableStateOf(conversation.disappearingTimerSeconds)
@@ -508,47 +514,73 @@ fun ConversationScreen(
                         .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
                     if (uiState.isRecordingVoice) {
-                        // Voice Recording Pill
+                        // Advanced Voice Recording Pill (Liquid Glassmorphic & Live Waveform)
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(56.dp)
-                                .shadow(8.dp, RoundedCornerShape(28.dp)),
-                            shape = RoundedCornerShape(28.dp),
-                            color = MaterialTheme.colorScheme.errorContainer
+                                .height(58.dp)
+                                .shadow(10.dp, RoundedCornerShape(29.dp)),
+                            shape = RoundedCornerShape(29.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.4f))
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .padding(horizontal = 18.dp),
+                                    .padding(horizontal = 14.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.weight(1f)
                                 ) {
                                     Box(
                                         modifier = Modifier
-                                            .size(12.dp)
+                                            .size(10.dp)
                                             .clip(CircleShape)
-                                            .background(Color.Red)
+                                            .background(ErrorRed)
                                     )
                                     Text(
-                                        text = "Recording 0:${String.format(Locale.getDefault(), "%02d", uiState.recordingSeconds)}",
-                                        color = MaterialTheme.colorScheme.onErrorContainer,
+                                        text = "0:${String.format(Locale.getDefault(), "%02d", uiState.recordingSeconds)}",
+                                        color = MaterialTheme.colorScheme.onSurface,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp
+                                        fontSize = 13.sp
+                                    )
+
+                                    // Live Dynamic Waveform
+                                    LiveVoiceWaveform(
+                                        amplitude = uiState.recordingAmplitude,
+                                        isRecording = true,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .padding(horizontal = 4.dp)
                                     )
                                 }
 
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    TextButton(onClick = onCancelVoiceRecording) {
-                                        Text("Cancel", color = MaterialTheme.colorScheme.error)
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            onCancelVoiceRecording()
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteOutline,
+                                            contentDescription = "Cancel recording",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(20.dp)
+                                        )
                                     }
 
                                     IconButton(
                                         onClick = {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             onFinishVoiceRecording(
                                                 uiState.recordingSeconds.toLong(),
                                                 currentDisappearingTimer > 0,
@@ -556,7 +588,7 @@ fun ConversationScreen(
                                             )
                                         },
                                         modifier = Modifier
-                                            .size(42.dp)
+                                            .size(38.dp)
                                             .clip(CircleShape)
                                             .background(MaterialTheme.colorScheme.primary)
                                     ) {
@@ -982,6 +1014,14 @@ fun ConversationScreen(
             onDismiss = { selectedMessageForReaction = null }
         )
     }
+
+    // Full-Screen Fluid Media Lightbox Viewer
+    if (!previewImageUrl.isNullOrBlank()) {
+        MediaLightboxViewer(
+            imageUrl = previewImageUrl,
+            onDismiss = { previewImageUrl = null }
+        )
+    }
 }
 
 @Composable
@@ -1006,6 +1046,46 @@ fun AttachmentOption(
             Icon(imageVector = icon, contentDescription = label, modifier = Modifier.size(24.dp))
         }
         Text(text = label, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+fun LiveVoiceWaveform(
+    amplitude: Int,
+    isRecording: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "waveAnim")
+    val animOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 6.28f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "animOffset"
+    )
+
+    Row(
+        modifier = modifier.height(28.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val baseAmp = (amplitude / 32767f).coerceIn(0.2f, 1f)
+        for (i in 0 until 16) {
+            val waveFactor = kotlin.math.sin(animOffset + (i * 0.45f)).toFloat()
+            val heightFraction = if (isRecording) {
+                ((baseAmp * 0.65f) + (kotlin.math.abs(waveFactor) * 0.35f)).coerceIn(0.18f, 1f)
+            } else 0.2f
+
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .fillMaxHeight(heightFraction)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.error)
+            )
+        }
     }
 }
 
@@ -1405,96 +1485,95 @@ fun MessageActionsDialog(
     onInspectCipher: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val emojis = listOf("❤️", "👍", "🔥", "😂", "😮", "😢", "👏", "🙏")
+    val emojis = listOf("❤️", "🔥", "👍", "😂", "😮", "🎉", "🙏")
+    val haptic = LocalHapticFeedback.current
 
     Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(24.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
-            shadowElevation = 8.dp,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-            modifier = Modifier.fillMaxWidth(0.95f)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Column(
-                modifier = Modifier.padding(18.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+            // Floating Quick Reactions Bar (iOS / Telegram Style)
+            Surface(
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shadowElevation = 10.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                modifier = Modifier.padding(horizontal = 8.dp)
             ) {
-                Text(
-                    text = "Message Actions",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                // Quick Reactions Row
-                Surface(
-                    shape = RoundedCornerShape(18.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                    modifier = Modifier.fillMaxWidth()
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(8.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        emojis.forEach { emoji ->
-                            val isSelected = currentReaction == emoji
-                            Surface(
-                                shape = CircleShape,
-                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clickable { onSelectEmoji(emoji) }
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(text = emoji, fontSize = 20.sp)
+                    emojis.forEach { emoji ->
+                        val isSelected = currentReaction == emoji
+                        Surface(
+                            shape = CircleShape,
+                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onSelectEmoji(emoji)
                                 }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(text = emoji, fontSize = 22.sp)
                             }
                         }
                     }
                 }
+            }
 
-                // Actions List
+            // Clean Actions Menu Card
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 8.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                modifier = Modifier.widthIn(max = 260.dp)
+            ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    modifier = Modifier.padding(vertical = 6.dp)
                 ) {
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { onForward() }
-                            .testTag("action_forward_message"),
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onReply()
+                            },
                         color = Color.Transparent
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(14.dp))
-                            Text("Forward", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                            Text("Reply", fontWeight = FontWeight.Medium, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
 
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { onReply() },
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onForward()
+                            }
+                            .testTag("action_forward_message"),
                         color = Color.Transparent
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
+                            Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(14.dp))
-                            Text("Reply", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                            Text("Forward", fontWeight = FontWeight.Medium, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
 
@@ -1502,35 +1581,20 @@ fun MessageActionsDialog(
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable { onCopyText() },
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onCopyText()
+                                },
                             color = Color.Transparent
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.ContentCopy, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(14.dp))
-                                Text("Copy Text", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                                Text("Copy Text", fontWeight = FontWeight.Medium, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
                             }
-                        }
-                    }
-
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { onInspectCipher() },
-                        color = Color.Transparent
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Shield, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(14.dp))
-                            Text("Inspect Encryption Cipher", fontWeight = FontWeight.Medium, fontSize = 14.sp)
                         }
                     }
                 }
