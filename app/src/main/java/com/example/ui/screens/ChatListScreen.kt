@@ -390,6 +390,15 @@ fun ChatListScreen(
                             textAlign = TextAlign.Center,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Button(
+                            onClick = onOpenNewChat,
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.padding(top = 8.dp)
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Start a Chat", fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
             } else {
@@ -405,10 +414,12 @@ fun ChatListScreen(
                         items = filteredConversations,
                         key = { it.id }
                     ) { conv ->
-                        ConversationListItem(
-                            conversation = conv,
-                            onClick = { onOpenConversation(conv.id) }
-                        )
+                        Box(modifier = Modifier.animateItem()) {
+                            ConversationListItem(
+                                conversation = conv,
+                                onClick = { onOpenConversation(conv.id) }
+                            )
+                        }
                     }
                 }
             }

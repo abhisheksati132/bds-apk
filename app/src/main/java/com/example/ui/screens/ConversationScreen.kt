@@ -417,20 +417,22 @@ fun ConversationScreen(
                         items = messages,
                         key = { it.id }
                     ) { message ->
-                        SwipeableMessageBubble(
-                            message = message,
-                            uiState = uiState,
-                            onReply = { onSetReplyTo(message) },
-                            onDoubleTapHeart = {
-                                val current = message.reaction
-                                val newReaction = if (current == "❤️") null else "❤️"
-                                onReactToMessage(message, newReaction)
-                            },
-                            onInspectCipher = { selectedMessageForCipher = message },
-                            onLongClickReaction = { selectedMessageForReaction = message },
-                            onImageClick = { previewImageUrl = it },
-                            onTogglePlayVoiceNote = onTogglePlayVoiceNote
-                        )
+                        Box(modifier = Modifier.animateItem()) {
+                            SwipeableMessageBubble(
+                                message = message,
+                                uiState = uiState,
+                                onReply = { onSetReplyTo(message) },
+                                onDoubleTapHeart = {
+                                    val current = message.reaction
+                                    val newReaction = if (current == "❤️") null else "❤️"
+                                    onReactToMessage(message, newReaction)
+                                },
+                                onInspectCipher = { selectedMessageForCipher = message },
+                                onLongClickReaction = { selectedMessageForReaction = message },
+                                onImageClick = { previewImageUrl = it },
+                                onTogglePlayVoiceNote = onTogglePlayVoiceNote
+                            )
+                        }
                     }
 
                     if (uiState.isPeerTyping) {

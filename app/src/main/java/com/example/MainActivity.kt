@@ -141,308 +141,334 @@ class MainActivity : ComponentActivity() {
                         onToggleSpeaker = { viewModel.toggleSpeaker() },
                         onEndCall = { viewModel.endCall() }
                     )
-                } else if (uiState.activeConversationId != null) {
-                    // Responsive Live Conversation Screen
-                    val currentConv by viewModel.currentConversation(uiState.activeConversationId!!)
-                        .collectAsStateWithLifecycle(initialValue = null)
-                    val messages by viewModel.currentMessages(uiState.activeConversationId!!)
-                        .collectAsStateWithLifecycle(initialValue = emptyList())
-
-                    BackHandler {
-                        viewModel.closeConversation()
-                    }
-
-                    if (currentConv != null) {
-                        ConversationScreen(
-                            conversation = currentConv!!,
-                            messages = messages,
-                            uiState = uiState,
-                            onBack = { viewModel.closeConversation() },
-                            onSendMessage = { text, isDisappearing, timer ->
-                                viewModel.sendMessage(
-                                    conversationId = currentConv!!.id,
-                                    text = text,
-                                    isDisappearing = isDisappearing,
-                                    disappearingTimerSeconds = timer
-                                )
-                            },
-                            onSendImage = { uri, isDisappearing, timer ->
-                                viewModel.sendImage(
-                                    conversationId = currentConv!!.id,
-                                    imageUri = uri,
-                                    isDisappearing = isDisappearing,
-                                    disappearingTimerSeconds = timer
-                                )
-                            },
-                            onStartVoiceRecording = { viewModel.startVoiceRecording() },
-                            onCancelVoiceRecording = { viewModel.cancelVoiceRecording() },
-                            onFinishVoiceRecording = { duration, isDisappearing, timer ->
-                                viewModel.finishVoiceRecording(currentConv!!.id, isDisappearing, timer)
-                            },
-                            onStartCall = { peer, isVideo -> viewModel.startCall(peer, isVideo) },
-                            onUpdateDisappearingTimer = { convId, seconds ->
-                                viewModel.updateDisappearingTimer(convId, seconds)
-                            },
-                            onClearChat = { convId -> viewModel.clearChat(convId) },
-                            onDeleteConversation = { convId -> viewModel.deleteConversation(convId) },
-                            onSetReplyTo = { msg -> viewModel.setReplyingTo(msg) },
-                            onOpenFingerprint = { viewModel.setKeyFingerprintDialogOpen(true) },
-                            onReactToMessage = { msg, reaction -> viewModel.reactToMessage(msg, reaction) },
-                            onTypingChanged = { isTyping -> viewModel.sendTyping(currentConv!!.id, isTyping) },
-                            onForwardMessage = { msg -> viewModel.setForwardDialogOpen(true, msg) },
-                            onBlockUser = { handle -> viewModel.blockUser(handle) },
-                            onTogglePlayVoiceNote = { url -> viewModel.togglePlayVoiceNote(url) }
-                        )
-
-                        // Safety number fingerprint dialog
-                        if (uiState.isKeyFingerprintDialogOpen) {
-                            FingerprintDialog(
-                                conversation = currentConv!!,
-                                myPublicKey = uiState.myPublicKey,
-                                onDismiss = { viewModel.setKeyFingerprintDialogOpen(false) }
-                            )
-                        }
-                    }
                 } else {
-                    // Main Tabs Navigation (Chats, Contacts, Status, Calls, Vault)
-                    Scaffold(
-                        modifier = Modifier.fillMaxSize(),
-                        bottomBar = {
-                            CleanBottomNavBar(
-                                activeTab = uiState.activeTab,
-                                onTabSelected = { tab -> viewModel.setTab(tab) }
-                            )
-                        }
-                    ) { innerPadding ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(innerPadding)
-                        ) {
-                            when (uiState.activeTab) {
-                                MainTab.CHATS -> {
-                                    ChatListScreen(
-                                        uiState = uiState,
-                                        conversations = conversations,
-                                        onOpenConversation = { id -> viewModel.openConversation(id) },
-                                        onOpenNewChat = { viewModel.setNewChatDialogOpen(true) },
-                                        onOpenVault = { viewModel.setTab(MainTab.VAULT_SECURITY) },
-                                        onOpenAuth = { viewModel.setAuthDialogOpen(true) },
-                                        onSearchQueryChanged = { q -> viewModel.setSearchQuery(q) },
-                                        onFilterSelected = { f -> viewModel.setFilter(f) }
-                                    )
-                                }
-                                MainTab.CONTACTS -> {
-                                    ContactsScreen(
-                                        contacts = contacts,
-                                        cloudUsers = uiState.cloudUsers,
-                                        myHandle = uiState.myHandle,
-                                        presenceMap = uiState.presenceMap,
-                                        blockedHandles = uiState.blockedHandles,
-                                        onStartChatWithContact = { contact ->
-                                             viewModel.startNewChatWithContact(contact)
-                                        },
-                                        onStartChatWithCloudUser = { cloudUser ->
-                                            viewModel.startNewChatWithCloudUser(cloudUser)
-                                        },
-                                        onStartCallWithUser = { name, handle, isVideo ->
-                                            viewModel.startCallWithUser(name, handle, isVideo)
-                                        },
-                                        onAddCustomContact = { name, handle ->
-                                            viewModel.createCustomContactAndChat(name, handle)
-                                        },
-                                        onSearchCloudPeer = { handle, onResult ->
-                                            viewModel.searchAndAddCloudPeer(handle, onResult)
-                                        },
-                                        onBlockUser = { handle -> viewModel.blockUser(handle) },
-                                        onUnblockUser = { handle -> viewModel.unblockUser(handle) },
-                                        isSearchingCloud = uiState.isSearchingCloud
-                                    )
-                                }
-                                MainTab.STATUS -> {
-                                    StatusScreen(
-                                        statuses = statuses,
-                                        onPostStatus = { text -> viewModel.postStatus(text) }
-                                    )
-                                }
-                                MainTab.CALLS -> {
-                                    CallsScreen(
-                                        calls = calls,
-                                        conversations = conversations,
-                                        onStartCall = { peer, isVideo -> viewModel.startCall(peer, isVideo) }
-                                    )
-                                }
-                                MainTab.VAULT_SECURITY -> {
-                                    VaultSecurityScreen(
-                                        uiState = uiState,
-                                        onTogglePreventScreenshots = { p -> viewModel.togglePreventScreenshots(p) },
-                                        onSetPin = { pin -> viewModel.setPin(pin) },
-                                        onDisablePin = { viewModel.disablePin() },
-                                        onLockAppNow = { viewModel.lockApp() },
-                                        onPanicWipeData = { viewModel.panicWipeAllData() },
-                                        onUpdateHandle = { handle -> viewModel.updateMyHandle(handle) },
-                                        onRotateKeys = { viewModel.rotateMyKeys() },
-                                        onOpenAuthDialog = { viewModel.setAuthDialogOpen(true) },
-                                        onToggleDarkMode = { mode -> viewModel.setDarkMode(mode) },
-                                        onOpenProfileDialog = { viewModel.setUserProfileDialogOpen(true) },
-                                        onToggleNotificationSounds = { enabled -> viewModel.toggleNotificationSound(enabled) },
-                                        onSetVibrationPattern = { pattern -> viewModel.setVibrationPattern(pattern) },
-                                        onTestVibration = { viewModel.testVibration() },
-                                        onCheckForUpdates = { viewModel.checkForUpdates(silent = false) }
-                                    )
-                                }
+                    AnimatedContent(
+                        targetState = uiState.activeConversationId,
+                        transitionSpec = {
+                            if (targetState != null) {
+                                (slideInHorizontally(animationSpec = tween(320)) { it } + fadeIn(animationSpec = tween(320)))
+                                    .togetherWith(slideOutHorizontally(animationSpec = tween(320)) { -it / 4 } + fadeOut(animationSpec = tween(320)))
+                            } else {
+                                (slideInHorizontally(animationSpec = tween(320)) { -it / 4 } + fadeIn(animationSpec = tween(320)))
+                                    .togetherWith(slideOutHorizontally(animationSpec = tween(320)) { it } + fadeOut(animationSpec = tween(320)))
                             }
-                        }
+                        },
+                        label = "convTransition"
+                    ) { activeConvId ->
+                        if (activeConvId != null) {
+                            // Responsive Live Conversation Screen
+                            val currentConv by viewModel.currentConversation(activeConvId)
+                                .collectAsStateWithLifecycle(initialValue = null)
+                            val messages by viewModel.currentMessages(activeConvId)
+                                .collectAsStateWithLifecycle(initialValue = emptyList())
 
-                        // In-App Auto-Updater Dialog
-                        if (uiState.availableUpdate != null || uiState.isDownloadingUpdate || uiState.isUpdateReadyToInstall) {
-                            uiState.availableUpdate?.let { updateInfo ->
-                                AppUpdateDialog(
-                                    releaseInfo = updateInfo,
-                                    currentVersion = uiState.currentAppVersion,
-                                    isDownloading = uiState.isDownloadingUpdate,
-                                    downloadProgress = uiState.updateDownloadProgress,
-                                    downloadBytesProgress = uiState.updateDownloadBytesProgress,
-                                    isReadyToInstall = uiState.isUpdateReadyToInstall,
-                                    onStartDownload = { viewModel.startDownloadingUpdate() },
-                                    onInstallDownloadedApk = { viewModel.installDownloadedUpdate() },
-                                    onDismiss = { viewModel.dismissUpdateDialog() }
+                            BackHandler {
+                                viewModel.closeConversation()
+                            }
+
+                            if (currentConv != null) {
+                                ConversationScreen(
+                                    conversation = currentConv!!,
+                                    messages = messages,
+                                    uiState = uiState,
+                                    onBack = { viewModel.closeConversation() },
+                                    onSendMessage = { text, isDisappearing, timer ->
+                                        viewModel.sendMessage(
+                                            conversationId = currentConv!!.id,
+                                            text = text,
+                                            isDisappearing = isDisappearing,
+                                            disappearingTimerSeconds = timer
+                                        )
+                                    },
+                                    onSendImage = { uri, isDisappearing, timer ->
+                                        viewModel.sendImage(
+                                            conversationId = currentConv!!.id,
+                                            imageUri = uri,
+                                            isDisappearing = isDisappearing,
+                                            disappearingTimerSeconds = timer
+                                        )
+                                    },
+                                    onStartVoiceRecording = { viewModel.startVoiceRecording() },
+                                    onCancelVoiceRecording = { viewModel.cancelVoiceRecording() },
+                                    onFinishVoiceRecording = { duration, isDisappearing, timer ->
+                                        viewModel.finishVoiceRecording(currentConv!!.id, isDisappearing, timer)
+                                    },
+                                    onStartCall = { peer, isVideo -> viewModel.startCall(peer, isVideo) },
+                                    onUpdateDisappearingTimer = { convId, seconds ->
+                                        viewModel.updateDisappearingTimer(convId, seconds)
+                                    },
+                                    onClearChat = { convId -> viewModel.clearChat(convId) },
+                                    onDeleteConversation = { convId -> viewModel.deleteConversation(convId) },
+                                    onSetReplyTo = { msg -> viewModel.setReplyingTo(msg) },
+                                    onOpenFingerprint = { viewModel.setKeyFingerprintDialogOpen(true) },
+                                    onReactToMessage = { msg, reaction -> viewModel.reactToMessage(msg, reaction) },
+                                    onTypingChanged = { isTyping -> viewModel.sendTyping(currentConv!!.id, isTyping) },
+                                    onForwardMessage = { msg -> viewModel.setForwardDialogOpen(true, msg) },
+                                    onBlockUser = { handle -> viewModel.blockUser(handle) },
+                                    onTogglePlayVoiceNote = { url -> viewModel.togglePlayVoiceNote(url) }
                                 )
+
+                                // Safety number fingerprint dialog
+                                if (uiState.isKeyFingerprintDialogOpen) {
+                                    FingerprintDialog(
+                                        conversation = currentConv!!,
+                                        myPublicKey = uiState.myPublicKey,
+                                        onDismiss = { viewModel.setKeyFingerprintDialogOpen(false) }
+                                    )
+                                }
+                            }
+                        } else {
+                            // Main Tabs Navigation (Chats, Contacts, Status, Calls, Vault)
+                            Scaffold(
+                                modifier = Modifier.fillMaxSize(),
+                                bottomBar = {
+                                    CleanBottomNavBar(
+                                        activeTab = uiState.activeTab,
+                                        onTabSelected = { tab -> viewModel.setTab(tab) }
+                                    )
+                                }
+                            ) { innerPadding ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(innerPadding)
+                                ) {
+                                    AnimatedContent(
+                                        targetState = uiState.activeTab,
+                                        transitionSpec = {
+                                            (fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.98f, animationSpec = tween(220)))
+                                                .togetherWith(fadeOut(animationSpec = tween(180)))
+                                        },
+                                        label = "tabTransition"
+                                    ) { currentTab ->
+                                        when (currentTab) {
+                                            MainTab.CHATS -> {
+                                                ChatListScreen(
+                                                    uiState = uiState,
+                                                    conversations = conversations,
+                                                    onOpenConversation = { id -> viewModel.openConversation(id) },
+                                                    onOpenNewChat = { viewModel.setNewChatDialogOpen(true) },
+                                                    onOpenVault = { viewModel.setTab(MainTab.VAULT_SECURITY) },
+                                                    onOpenAuth = { viewModel.setAuthDialogOpen(true) },
+                                                    onSearchQueryChanged = { q -> viewModel.setSearchQuery(q) },
+                                                    onFilterSelected = { f -> viewModel.setFilter(f) }
+                                                )
+                                            }
+                                            MainTab.CONTACTS -> {
+                                                ContactsScreen(
+                                                    contacts = contacts,
+                                                    cloudUsers = uiState.cloudUsers,
+                                                    myHandle = uiState.myHandle,
+                                                    presenceMap = uiState.presenceMap,
+                                                    blockedHandles = uiState.blockedHandles,
+                                                    onStartChatWithContact = { contact ->
+                                                         viewModel.startNewChatWithContact(contact)
+                                                    },
+                                                    onStartChatWithCloudUser = { cloudUser ->
+                                                        viewModel.startNewChatWithCloudUser(cloudUser)
+                                                    },
+                                                    onStartCallWithUser = { name, handle, isVideo ->
+                                                        viewModel.startCallWithUser(name, handle, isVideo)
+                                                    },
+                                                    onAddCustomContact = { name, handle ->
+                                                        viewModel.createCustomContactAndChat(name, handle)
+                                                    },
+                                                    onSearchCloudPeer = { handle, onResult ->
+                                                        viewModel.searchAndAddCloudPeer(handle, onResult)
+                                                    },
+                                                    onBlockUser = { handle -> viewModel.blockUser(handle) },
+                                                    onUnblockUser = { handle -> viewModel.unblockUser(handle) },
+                                                    isSearchingCloud = uiState.isSearchingCloud
+                                                )
+                                            }
+                                            MainTab.STATUS -> {
+                                                StatusScreen(
+                                                    statuses = statuses,
+                                                    onPostStatus = { text -> viewModel.postStatus(text) }
+                                                )
+                                            }
+                                            MainTab.CALLS -> {
+                                                CallsScreen(
+                                                    calls = calls,
+                                                    conversations = conversations,
+                                                    onStartCall = { peer, isVideo -> viewModel.startCall(peer, isVideo) }
+                                                )
+                                            }
+                                            MainTab.VAULT_SECURITY -> {
+                                                VaultSecurityScreen(
+                                                    uiState = uiState,
+                                                    onTogglePreventScreenshots = { p -> viewModel.togglePreventScreenshots(p) },
+                                                    onSetPin = { pin -> viewModel.setPin(pin) },
+                                                    onDisablePin = { viewModel.disablePin() },
+                                                    onLockAppNow = { viewModel.lockApp() },
+                                                    onPanicWipeData = { viewModel.panicWipeAllData() },
+                                                    onUpdateHandle = { handle -> viewModel.updateMyHandle(handle) },
+                                                    onRotateKeys = { viewModel.rotateMyKeys() },
+                                                    onOpenAuthDialog = { viewModel.setAuthDialogOpen(true) },
+                                                    onToggleDarkMode = { mode -> viewModel.setDarkMode(mode) },
+                                                    onOpenProfileDialog = { viewModel.setUserProfileDialogOpen(true) },
+                                                    onToggleNotificationSounds = { enabled -> viewModel.toggleNotificationSound(enabled) },
+                                                    onSetVibrationPattern = { pattern -> viewModel.setVibrationPattern(pattern) },
+                                                    onTestVibration = { viewModel.testVibration() },
+                                                    onCheckForUpdates = { viewModel.checkForUpdates(silent = false) }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
+                    }
 
-                        // Dialog to start new chat
-                        if (uiState.isNewChatDialogOpen) {
-                            NewChatDialog(
-                                contacts = contacts,
-                                cloudUsers = uiState.cloudUsers,
-                                onSelectContact = { contact ->
-                                    viewModel.startNewChatWithContact(contact)
-                                },
-                                onSelectCloudUser = { cloudUser ->
-                                    viewModel.startNewChatWithCloudUser(cloudUser)
-                                },
-                                onOpenCreateGroup = {
-                                    viewModel.setNewChatDialogOpen(false)
-                                    viewModel.setCreateGroupDialogOpen(true)
-                                },
-                                onCreateContactAndChat = { name, handle ->
-                                    viewModel.createCustomContactAndChat(name, handle)
-                                },
-                                onSearchCloudPeer = { handle, onResult ->
-                                    viewModel.searchAndAddCloudPeer(handle, onResult)
-                                },
-                                isSearchingCloud = uiState.isSearchingCloud,
-                                onDismiss = { viewModel.setNewChatDialogOpen(false) }
-                            )
-                        }
-
-                        // Dialog to create new group chat
-                        if (uiState.isCreateGroupDialogOpen) {
-                            CreateGroupDialog(
-                                contacts = contacts,
-                                cloudUsers = uiState.cloudUsers,
-                                myHandle = uiState.myHandle,
-                                onCreateGroup = { name, members ->
-                                    viewModel.createGroupChat(name, members)
-                                },
-                                onDismiss = { viewModel.setCreateGroupDialogOpen(false) }
-                            )
-                        }
-
-                        // Firebase Auth Dialog
-                        if (uiState.isAuthDialogOpen) {
-                            AuthDialog(
-                                currentUser = uiState.authUser,
-                                isLoading = uiState.isAuthLoading,
-                                errorMessage = uiState.authErrorMessage,
-                                onSignUpWithEmail = { email, pass, handle, onResult ->
-                                    viewModel.signUpWithEmail(email, pass, handle, onResult)
-                                },
-                                onSignInWithEmail = { email, pass, onResult ->
-                                    viewModel.signInWithEmail(email, pass, onResult)
-                                },
-                                onSignInWithGoogle = { ctx, onResult ->
-                                    viewModel.signInWithGoogle(ctx, onResult)
-                                },
-                                onSendPasswordReset = { email, onResult ->
-                                    viewModel.sendPasswordReset(email, onResult)
-                                },
-                                onSignOut = { viewModel.signOut() },
-                                onDismiss = { viewModel.setAuthDialogOpen(false) }
-                            )
-                        }
-
-                        // Real-time Incoming Call Dialog
-                        val currentIncomingCall = uiState.incomingCall
-                        if (currentIncomingCall != null) {
-                            AlertDialog(
-                                onDismissRequest = { viewModel.rejectIncomingCall() },
-                                icon = {
-                                    Icon(
-                                        imageVector = if (currentIncomingCall.isVideo) Icons.Default.Videocam else Icons.Default.Call,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(36.dp)
-                                    )
-                                },
-                                title = {
-                                    Text("Incoming ${if (currentIncomingCall.isVideo) "Video" else "Voice"} Call", fontWeight = FontWeight.Bold)
-                                },
-                                text = {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                                        Text(currentIncomingCall.callerName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                        Text("@${currentIncomingCall.callerHandle}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text("End-to-End Encrypted Live Call", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                                    }
-                                },
-                                confirmButton = {
-                                    Button(
-                                        onClick = { viewModel.acceptIncomingCall() },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
-                                    ) {
-                                        Text("Accept")
-                                    }
-                                },
-                                dismissButton = {
-                                    OutlinedButton(
-                                        onClick = { viewModel.rejectIncomingCall() },
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                                    ) {
-                                        Text("Decline")
-                                    }
-                                }
-                            )
-                        }
-
-                        // User Profile & Avatar Customization Dialog
-                        if (uiState.isUserProfileDialogOpen) {
-                            UserProfileDialog(
-                                uiState = uiState,
-                                onDismiss = { viewModel.setUserProfileDialogOpen(false) },
-                                onUploadAvatar = { uri -> viewModel.uploadAndSetAvatar(uri) },
-                                onUpdateProfile = { name, about, bgHex, textHex ->
-                                    viewModel.updateProfile(name, about, bgHex, textHex)
-                                },
-                                onRemoveAvatar = { viewModel.removeAvatar() }
-                            )
-                        }
-
-                        // Forward Message Dialog
-                        val messageToForward = uiState.forwardingMessage
-                        if (messageToForward != null) {
-                            ForwardMessageDialog(
-                                messageToForward = messageToForward,
-                                conversations = conversations,
-                                currentConversationId = uiState.activeConversationId,
-                                onDismiss = { viewModel.setForwardDialogOpen(false) },
-                                onSelectTargetConversation = { targetConvId ->
-                                    viewModel.forwardMessageTo(targetConvId, messageToForward)
-                                }
+                    // In-App Auto-Updater Dialog
+                    if (uiState.availableUpdate != null || uiState.isDownloadingUpdate || uiState.isUpdateReadyToInstall) {
+                        uiState.availableUpdate?.let { updateInfo ->
+                            AppUpdateDialog(
+                                releaseInfo = updateInfo,
+                                currentVersion = uiState.currentAppVersion,
+                                isDownloading = uiState.isDownloadingUpdate,
+                                downloadProgress = uiState.updateDownloadProgress,
+                                downloadBytesProgress = uiState.updateDownloadBytesProgress,
+                                isReadyToInstall = uiState.isUpdateReadyToInstall,
+                                onStartDownload = { viewModel.startDownloadingUpdate() },
+                                onInstallDownloadedApk = { viewModel.installDownloadedUpdate() },
+                                onDismiss = { viewModel.dismissUpdateDialog() }
                             )
                         }
                     }
+
+                    // Dialog to start new chat
+                    if (uiState.isNewChatDialogOpen) {
+                        NewChatDialog(
+                            contacts = contacts,
+                            cloudUsers = uiState.cloudUsers,
+                            onSelectContact = { contact ->
+                                viewModel.startNewChatWithContact(contact)
+                            },
+                            onSelectCloudUser = { cloudUser ->
+                                viewModel.startNewChatWithCloudUser(cloudUser)
+                            },
+                            onOpenCreateGroup = {
+                                viewModel.setNewChatDialogOpen(false)
+                                viewModel.setCreateGroupDialogOpen(true)
+                            },
+                            onCreateContactAndChat = { name, handle ->
+                                viewModel.createCustomContactAndChat(name, handle)
+                            },
+                            onSearchCloudPeer = { handle, onResult ->
+                                viewModel.searchAndAddCloudPeer(handle, onResult)
+                            },
+                            isSearchingCloud = uiState.isSearchingCloud,
+                            onDismiss = { viewModel.setNewChatDialogOpen(false) }
+                        )
+                    }
+
+                    // Dialog to create new group chat
+                    if (uiState.isCreateGroupDialogOpen) {
+                        CreateGroupDialog(
+                            contacts = contacts,
+                            cloudUsers = uiState.cloudUsers,
+                            myHandle = uiState.myHandle,
+                            onCreateGroup = { name, members ->
+                                viewModel.createGroupChat(name, members)
+                            },
+                            onDismiss = { viewModel.setCreateGroupDialogOpen(false) }
+                        )
+                    }
+
+                    // Firebase Auth Dialog
+                    if (uiState.isAuthDialogOpen) {
+                        AuthDialog(
+                            currentUser = uiState.authUser,
+                            isLoading = uiState.isAuthLoading,
+                            errorMessage = uiState.authErrorMessage,
+                            onSignUpWithEmail = { email, pass, handle, onResult ->
+                                viewModel.signUpWithEmail(email, pass, handle, onResult)
+                            },
+                            onSignInWithEmail = { email, pass, onResult ->
+                                viewModel.signInWithEmail(email, pass, onResult)
+                            },
+                            onSignInWithGoogle = { ctx, onResult ->
+                                viewModel.signInWithGoogle(ctx, onResult)
+                            },
+                            onSendPasswordReset = { email, onResult ->
+                                viewModel.sendPasswordReset(email, onResult)
+                            },
+                            onSignOut = { viewModel.signOut() },
+                            onDismiss = { viewModel.setAuthDialogOpen(false) }
+                        )
+                    }
+
+                    // Real-time Incoming Call Dialog
+                    val currentIncomingCall = uiState.incomingCall
+                    if (currentIncomingCall != null) {
+                        AlertDialog(
+                            onDismissRequest = { viewModel.rejectIncomingCall() },
+                            icon = {
+                                Icon(
+                                    imageVector = if (currentIncomingCall.isVideo) Icons.Default.Videocam else Icons.Default.Call,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            },
+                            title = {
+                                Text("Incoming ${if (currentIncomingCall.isVideo) "Video" else "Voice"} Call", fontWeight = FontWeight.Bold)
+                            },
+                            text = {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                                    Text(currentIncomingCall.callerName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                    Text("@${currentIncomingCall.callerHandle}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("End-to-End Encrypted Live Call", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                }
+                            },
+                            confirmButton = {
+                                Button(
+                                    onClick = { viewModel.acceptIncomingCall() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                                ) {
+                                    Text("Accept")
+                                }
+                            },
+                            dismissButton = {
+                                OutlinedButton(
+                                    onClick = { viewModel.rejectIncomingCall() },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                ) {
+                                    Text("Decline")
+                                }
+                            }
+                        )
+                    }
+
+                    // User Profile & Avatar Customization Dialog
+                    if (uiState.isUserProfileDialogOpen) {
+                        UserProfileDialog(
+                            uiState = uiState,
+                            onDismiss = { viewModel.setUserProfileDialogOpen(false) },
+                            onUploadAvatar = { uri -> viewModel.uploadAndSetAvatar(uri) },
+                            onUpdateProfile = { name, about, bgHex, textHex ->
+                                viewModel.updateProfile(name, about, bgHex, textHex)
+                            },
+                            onRemoveAvatar = { viewModel.removeAvatar() }
+                        )
+                    }
+
+                    // Forward Message Dialog
+                    val messageToForward = uiState.forwardingMessage
+                    if (messageToForward != null) {
+                        ForwardMessageDialog(
+                            messageToForward = messageToForward,
+                            conversations = conversations,
+                            currentConversationId = uiState.activeConversationId,
+                            onDismiss = { viewModel.setForwardDialogOpen(false) },
+                            onSelectTargetConversation = { targetConvId ->
+                                viewModel.forwardMessageTo(targetConvId, messageToForward)
+                            }
+                        )
+                    }
+                }
                 }
             }
         }
