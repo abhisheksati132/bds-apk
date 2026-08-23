@@ -13,10 +13,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.example.ui.theme.SuccessGreen
 
 fun parseColorHex(hex: String, defaultColor: Color): Color {
@@ -48,6 +50,7 @@ fun AvatarView(
     bgHex: String,
     textHex: String,
     size: Dp = 56.dp,
+    imageUrl: String? = null,
     isOnline: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -64,12 +67,23 @@ fun AvatarView(
                 .background(bgColor),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = monogram,
-                color = textColor,
-                fontSize = fontSize,
-                fontWeight = FontWeight.Bold
-            )
+            if (!imageUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = imageUrl,
+                    contentDescription = name,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(size)
+                        .clip(CircleShape)
+                )
+            } else {
+                Text(
+                    text = monogram,
+                    color = textColor,
+                    fontSize = fontSize,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
 
         if (isOnline) {

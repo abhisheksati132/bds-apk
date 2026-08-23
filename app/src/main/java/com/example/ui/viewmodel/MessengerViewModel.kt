@@ -15,6 +15,7 @@ import com.example.data.remote.CloudUser
 import com.example.data.remote.FirebaseAuthService
 import com.example.data.remote.FirebaseCloudService
 import com.example.data.repository.MessengerRepository
+import com.example.util.HapticHelper
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -59,11 +60,24 @@ data class UiState(
     val incomingCall: CallSignal? = null,
     val activeCallSignalId: String? = null,
     val myHandle: String = "",
+    val myDisplayName: String = "",
+    val myAbout: String = "Zero-trust encrypted peer",
+    val myAvatarUrl: String? = null,
+    val myAvatarBgHex: String = "#DDE1FF",
+    val myAvatarTextHex: String = "#001453",
+    val isUserProfileDialogOpen: Boolean = false,
+    val isUpdatingProfile: Boolean = false,
+    val isForwardDialogOpen: Boolean = false,
+    val forwardingMessage: MessageEntity? = null,
+    val isNotificationSoundEnabled: Boolean = true,
+    val vibrationPattern: String = "DEFAULT", // DEFAULT, SHORT, LONG, HEARTBEAT, OFF
     val myPublicKey: String = "ECDH-P256: 4F91B2E6AA1998C1",
     val cloudStatus: CloudStatus = CloudStatus.Checking,
     val isSearchingCloud: Boolean = false,
     val cloudUsers: List<CloudUser> = emptyList(),
-    val presenceMap: Map<String, Boolean> = emptyMap()
+    val presenceMap: Map<String, Boolean> = emptyMap(),
+    val isDarkMode: Boolean? = null,
+    val blockedHandles: Set<String> = emptySet()
 ) {
     val isAuthenticated: Boolean
         get() = authUser != null || isGuestUser || myHandle.isNotBlank()
@@ -83,6 +97,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
     private var voiceRecordJob: Job? = null
     private var cleanupTimerJob: Job? = null
     private var callStateListener: com.google.firebase.firestore.ListenerRegistration? = null
+    private var activeTypingListener: com.google.firebase.firestore.ListenerRegistration? = null
 
     init {
         val db = AppDatabase.getDatabase(application, viewModelScope)
@@ -90,7 +105,27 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
         authService = FirebaseAuthService(application)
         repository = MessengerRepository(db.messengerDao(), cloudService)
 
-        // Observe DataStore Security Preferences
+        // Observe DataStore Security Preferences & Dark Mode
+        viewModelScope.launch {
+            securityPrefs.isDarkModeFlow.collect { dark ->
+                _uiState.update { it.copy(isDarkMode = dark) }
+            }
+        }
+        viewModelScope.launch {
+            securityPrefs.notificationSoundsFlow.collect { soundsEnabled ->
+                _uiState.update { it.copy(isNotificationSoundEnabled = soundsEnabled) }
+            }
+        }
+        viewModelScope.launch {
+            securityPrefs.vibrationPatternFlow.collect { pattern ->
+                _uiState.update { it.copy(vibrationPattern = pattern) }
+            }
+        }
+        viewModelScope.launch {
+            cloudService.blockedUsers.collect { blocked ->
+                _uiState.update { it.copy(blockedHandles = blocked) }
+            }
+        }
         viewModelScope.launch {
             securityPrefs.pinCodeFlow.collect { pin ->
                 _uiState.update { it.copy(pinCode = pin) }
@@ -112,11 +147,27 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
 
-        // Restore saved handle or guest state if present
+        // Restore saved profile & handle if present
         val savedHandle = prefs.getString("saved_handle", "") ?: ""
         val savedGuest = prefs.getBoolean("is_guest", false)
+        val savedDisplayName = prefs.getString("saved_display_name", "") ?: ""
+        val savedAbout = prefs.getString("saved_about", "Zero-trust encrypted peer") ?: "Zero-trust encrypted peer"
+        val savedAvatarUrl = prefs.getString("saved_avatar_url", null)
+        val savedAvatarBgHex = prefs.getString("saved_avatar_bg_hex", "#DDE1FF") ?: "#DDE1FF"
+        val savedAvatarTextHex = prefs.getString("saved_avatar_text_hex", "#001453") ?: "#001453"
+
         if (savedHandle.isNotBlank()) {
-            _uiState.update { it.copy(myHandle = savedHandle, isGuestUser = savedGuest) }
+            _uiState.update {
+                it.copy(
+                    myHandle = savedHandle,
+                    isGuestUser = savedGuest,
+                    myDisplayName = savedDisplayName,
+                    myAbout = savedAbout,
+                    myAvatarUrl = savedAvatarUrl,
+                    myAvatarBgHex = savedAvatarBgHex,
+                    myAvatarTextHex = savedAvatarTextHex
+                )
+            }
             registerAndListenForHandle(savedHandle)
         }
 
@@ -192,6 +243,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
                 publicKey = _uiState.value.myPublicKey
             )
             cloudService.startIncomingMessageListener(clean)
+            cloudService.syncBlockedUsers(clean)
             cloudService.startIncomingCallListener(clean) { incoming ->
                 _uiState.update { it.copy(incomingCall = incoming) }
             }
@@ -257,15 +309,239 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun openConversation(conversationId: Long) {
-        _uiState.update { it.copy(activeConversationId = conversationId, replyingToMessage = null) }
+        _uiState.update { it.copy(activeConversationId = conversationId, replyingToMessage = null, isPeerTyping = false) }
         val handle = _uiState.value.myHandle
         viewModelScope.launch {
             repository.markConversationRead(conversationId, handle)
+            val conv = repository.getConversation(conversationId).firstOrNull()
+            if (conv != null) {
+                val threadKey = if (conv.isGroup) conv.peerHandle else {
+                    listOf(handle.lowercase().trim(), conv.peerHandle.lowercase().trim()).sorted().joinToString("_")
+                }
+                activeTypingListener?.remove()
+                activeTypingListener = repository.observeTyping(threadKey, conv.peerHandle) { isTyping ->
+                    _uiState.update { it.copy(isPeerTyping = isTyping) }
+                }
+            }
         }
     }
 
     fun closeConversation() {
-        _uiState.update { it.copy(activeConversationId = null, replyingToMessage = null) }
+        val convId = _uiState.value.activeConversationId
+        val handle = _uiState.value.myHandle
+        if (convId != null && handle.isNotBlank()) {
+            viewModelScope.launch {
+                val conv = repository.getConversation(convId).firstOrNull()
+                if (conv != null) {
+                    val threadKey = if (conv.isGroup) conv.peerHandle else {
+                        listOf(handle.lowercase().trim(), conv.peerHandle.lowercase().trim()).sorted().joinToString("_")
+                    }
+                    repository.setTyping(threadKey, handle, false)
+                }
+            }
+        }
+        activeTypingListener?.remove()
+        activeTypingListener = null
+        _uiState.update { it.copy(activeConversationId = null, replyingToMessage = null, isPeerTyping = false) }
+    }
+
+    fun sendTyping(conversationId: Long, isTyping: Boolean) {
+        val handle = _uiState.value.myHandle
+        if (handle.isBlank()) return
+        viewModelScope.launch {
+            val conv = repository.getConversation(conversationId).firstOrNull()
+            if (conv != null) {
+                val threadKey = if (conv.isGroup) conv.peerHandle else {
+                    listOf(handle.lowercase().trim(), conv.peerHandle.lowercase().trim()).sorted().joinToString("_")
+                }
+                repository.setTyping(threadKey, handle, isTyping)
+            }
+        }
+    }
+
+    fun blockUser(handle: String) {
+        val clean = handle.lowercase().replace("@", "").trim()
+        if (clean.isBlank()) return
+        viewModelScope.launch {
+            repository.blockUser(_uiState.value.myHandle, clean)
+        }
+    }
+
+    fun unblockUser(handle: String) {
+        val clean = handle.lowercase().replace("@", "").trim()
+        if (clean.isBlank()) return
+        viewModelScope.launch {
+            repository.unblockUser(_uiState.value.myHandle, clean)
+        }
+    }
+
+    fun reactToMessage(message: MessageEntity, emoji: String?) {
+        HapticHelper.playReactionHaptic(getApplication())
+        viewModelScope.launch {
+            repository.updateMessageReaction(message.id, message.cloudMsgDocId, emoji)
+        }
+    }
+
+    fun setDarkMode(enabled: Boolean?) {
+        viewModelScope.launch {
+            securityPrefs.setDarkMode(enabled)
+        }
+    }
+
+    fun toggleNotificationSound(enabled: Boolean) {
+        viewModelScope.launch {
+            securityPrefs.setNotificationSounds(enabled)
+        }
+    }
+
+    fun setVibrationPattern(pattern: String) {
+        viewModelScope.launch {
+            securityPrefs.setVibrationPattern(pattern)
+        }
+    }
+
+    fun testVibration() {
+        val app = getApplication<Application>()
+        HapticHelper.triggerVibrationPattern(app, _uiState.value.vibrationPattern)
+        if (_uiState.value.isNotificationSoundEnabled) {
+            HapticHelper.playNotificationSound(app)
+        }
+    }
+
+    fun setUserProfileDialogOpen(open: Boolean) {
+        _uiState.update { it.copy(isUserProfileDialogOpen = open) }
+    }
+
+    fun uploadAndSetAvatar(imageUri: Uri, onResult: (Boolean, String?) -> Unit = { _, _ -> }) {
+        val handle = _uiState.value.myHandle
+        if (handle.isBlank()) {
+            onResult(false, "Please set a username handle first")
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isUpdatingProfile = true) }
+            val downloadUrl = cloudService.uploadUserAvatar(imageUri, handle)
+            if (downloadUrl != null) {
+                prefs.edit().putString("saved_avatar_url", downloadUrl).apply()
+                _uiState.update { it.copy(myAvatarUrl = downloadUrl, isUpdatingProfile = false) }
+                cloudService.updateUserProfile(
+                    handle = handle,
+                    displayName = _uiState.value.myDisplayName.ifBlank { "@$handle" },
+                    about = _uiState.value.myAbout,
+                    avatarUrl = downloadUrl
+                )
+                onResult(true, "Avatar uploaded successfully!")
+            } else {
+                _uiState.update { it.copy(isUpdatingProfile = false) }
+                onResult(false, "Failed to upload avatar image")
+            }
+        }
+    }
+
+    fun updateProfile(
+        displayName: String,
+        about: String,
+        avatarBgHex: String? = null,
+        avatarTextHex: String? = null,
+        onResult: (Boolean) -> Unit = {}
+    ) {
+        val handle = _uiState.value.myHandle
+        prefs.edit()
+            .putString("saved_display_name", displayName)
+            .putString("saved_about", about)
+            .apply()
+
+        if (avatarBgHex != null) prefs.edit().putString("saved_avatar_bg_hex", avatarBgHex).apply()
+        if (avatarTextHex != null) prefs.edit().putString("saved_avatar_text_hex", avatarTextHex).apply()
+
+        _uiState.update {
+            it.copy(
+                myDisplayName = displayName,
+                myAbout = about,
+                myAvatarBgHex = avatarBgHex ?: it.myAvatarBgHex,
+                myAvatarTextHex = avatarTextHex ?: it.myAvatarTextHex
+            )
+        }
+
+        if (handle.isNotBlank()) {
+            viewModelScope.launch {
+                cloudService.updateUserProfile(
+                    handle = handle,
+                    displayName = displayName,
+                    about = about,
+                    avatarUrl = _uiState.value.myAvatarUrl,
+                    avatarBgHex = avatarBgHex,
+                    avatarTextHex = avatarTextHex
+                )
+                onResult(true)
+            }
+        } else {
+            onResult(true)
+        }
+    }
+
+    fun removeAvatar() {
+        val handle = _uiState.value.myHandle
+        prefs.edit().remove("saved_avatar_url").apply()
+        _uiState.update { it.copy(myAvatarUrl = null) }
+        if (handle.isNotBlank()) {
+            viewModelScope.launch {
+                cloudService.updateUserProfile(
+                    handle = handle,
+                    displayName = _uiState.value.myDisplayName.ifBlank { "@$handle" },
+                    about = _uiState.value.myAbout,
+                    avatarUrl = ""
+                )
+            }
+        }
+    }
+
+    fun setForwardDialogOpen(open: Boolean, message: MessageEntity? = null) {
+        _uiState.update { it.copy(isForwardDialogOpen = open, forwardingMessage = message) }
+    }
+
+    fun forwardMessageTo(targetConversationId: Long, originalMessage: MessageEntity) {
+        HapticHelper.playMessageSentHaptic(getApplication())
+        _uiState.update { it.copy(isForwardDialogOpen = false, forwardingMessage = null) }
+
+        viewModelScope.launch {
+            when (originalMessage.type) {
+                MessageType.IMAGE -> {
+                    if (originalMessage.mediaUrl != null) {
+                        repository.sendMessage(
+                            conversationId = targetConversationId,
+                            text = originalMessage.text.ifBlank { "Forwarded photo" },
+                            type = MessageType.IMAGE,
+                            mediaUrl = originalMessage.mediaUrl,
+                            myHandle = _uiState.value.myHandle
+                        )
+                    }
+                }
+                MessageType.VOICE -> {
+                    repository.sendMessage(
+                        conversationId = targetConversationId,
+                        text = "Forwarded voice message",
+                        type = MessageType.VOICE,
+                        voiceDurationSeconds = originalMessage.voiceDurationSeconds,
+                        mediaUrl = originalMessage.mediaUrl,
+                        myHandle = _uiState.value.myHandle
+                    )
+                }
+                else -> {
+                    repository.sendMessage(
+                        conversationId = targetConversationId,
+                        text = originalMessage.text,
+                        type = MessageType.TEXT,
+                        myHandle = _uiState.value.myHandle
+                    )
+                }
+            }
+
+            if (!cloudService.isCloudAvailable()) {
+                triggerSimulatedPeerReply(targetConversationId, originalMessage.text)
+            }
+        }
     }
 
     fun setSearchQuery(query: String) {
@@ -301,6 +577,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
         voiceDurationSeconds: Int = 0
     ) {
         if (text.isBlank() && type == MessageType.TEXT) return
+        HapticHelper.playMessageSentHaptic(getApplication())
         val reply = _uiState.value.replyingToMessage
         val currentHandle = _uiState.value.myHandle
 
@@ -332,6 +609,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
         isDisappearing: Boolean = false,
         disappearingTimerSeconds: Long = 0
     ) {
+        HapticHelper.playMessageSentHaptic(getApplication())
         val currentHandle = _uiState.value.myHandle
         viewModelScope.launch {
             repository.sendImageMessage(
@@ -386,8 +664,10 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun clearChat(conversationId: Long) {
+        HapticHelper.playClearChatHaptic(getApplication())
+        val myHandle = _uiState.value.myHandle
         viewModelScope.launch {
-            repository.clearChatMessages(conversationId)
+            repository.clearChatMessages(conversationId, myHandle)
         }
     }
 

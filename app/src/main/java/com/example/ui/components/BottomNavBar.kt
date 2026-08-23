@@ -8,14 +8,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Update
 import androidx.compose.material.icons.outlined.Chat
-import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Phone
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Update
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -77,9 +77,9 @@ fun CleanBottomNavBar(
         ),
         NavItem(
             tab = MainTab.VAULT_SECURITY,
-            label = "Vault",
-            selectedIcon = Icons.Filled.Lock,
-            unselectedIcon = Icons.Outlined.Lock,
+            label = "Settings",
+            selectedIcon = Icons.Filled.Settings,
+            unselectedIcon = Icons.Outlined.Settings,
             testTag = "nav_vault_tab"
         )
     )
@@ -91,15 +91,15 @@ fun CleanBottomNavBar(
             .windowInsetsPadding(WindowInsets.navigationBars)
     ) {
         HorizontalDivider(
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
             thickness = 0.5.dp
         )
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(64.dp)
-                .padding(horizontal = 4.dp),
+                .height(62.dp)
+                .padding(horizontal = 6.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -131,7 +131,7 @@ fun CleanBottomNavBar(
                             .width(52.dp)
                             .clip(RoundedCornerShape(14.dp))
                             .background(
-                                if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                                if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
                                 else Color.Transparent
                             ),
                         contentAlignment = Alignment.Center
@@ -144,6 +144,8 @@ fun CleanBottomNavBar(
                         )
                     }
 
+                    Spacer(modifier = Modifier.height(2.dp))
+
                     Text(
                         text = item.label,
                         fontSize = 11.sp,
@@ -155,3 +157,4 @@ fun CleanBottomNavBar(
         }
     }
 }
+

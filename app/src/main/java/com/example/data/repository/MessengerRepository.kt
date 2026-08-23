@@ -253,7 +253,8 @@ class MessengerRepository(
             unreadCount = 0,
             isOnline = true,
             isEncrypted = true,
-            keyFingerprint = CryptoHelper.generateFingerprint(contact.handle)
+            keyFingerprint = CryptoHelper.generateFingerprint(contact.handle),
+            avatarUrl = contact.avatarUrl
         )
         return dao.insertConversation(newConv)
     }
@@ -274,7 +275,8 @@ class MessengerRepository(
             unreadCount = 0,
             isOnline = cloudUser.isOnline,
             isEncrypted = true,
-            keyFingerprint = CryptoHelper.generateFingerprint(cloudUser.handle)
+            keyFingerprint = CryptoHelper.generateFingerprint(cloudUser.handle),
+            avatarUrl = cloudUser.avatarUrl.ifBlank { null }
         )
         // Also save to contacts
         dao.insertContact(
@@ -284,7 +286,8 @@ class MessengerRepository(
                 avatarBgHex = cloudUser.avatarBgHex,
                 avatarTextHex = cloudUser.avatarTextHex,
                 publicKey = cloudUser.publicKey,
-                about = cloudUser.about
+                about = cloudUser.about,
+                avatarUrl = cloudUser.avatarUrl.ifBlank { null }
             )
         )
         return dao.insertConversation(newConv)
@@ -307,8 +310,49 @@ class MessengerRepository(
         dao.deleteConversation(conversationId)
     }
 
-    suspend fun clearChatMessages(conversationId: Long) {
+    suspend fun clearChatMessages(conversationId: Long, myHandle: String = "") {
+        val conv = dao.getConversationById(conversationId).firstOrNull()
         dao.deleteAllMessagesInConversation(conversationId)
+        if (conv != null) {
+            dao.updateConversation(conv.copy(lastMessage = "Chat cleared"))
+            if (myHandle.isNotBlank()) {
+                cloudService?.clearChatInCloud(
+                    myHandle = myHandle,
+                    peerHandle = conv.peerHandle,
+                    isGroup = conv.isGroup,
+                    groupId = conv.cloudDocId
+                )
+            }
+        }
+    }
+
+    suspend fun setTyping(threadKey: String, userHandle: String, isTyping: Boolean) {
+        cloudService?.setTypingStatus(threadKey, userHandle, isTyping)
+    }
+
+    fun observeTyping(threadKey: String, peerHandle: String, onTypingChanged: (Boolean) -> Unit): ListenerRegistration? {
+        return cloudService?.observeTypingStatus(threadKey, peerHandle, onTypingChanged)
+    }
+
+    suspend fun blockUser(myHandle: String, peerHandle: String) {
+        cloudService?.blockUser(myHandle, peerHandle)
+        dao.setContactBlocked(peerHandle, true)
+    }
+
+    suspend fun unblockUser(myHandle: String, peerHandle: String) {
+        cloudService?.unblockUser(myHandle, peerHandle)
+        dao.setContactBlocked(peerHandle, false)
+    }
+
+    suspend fun syncBlockedUsers(myHandle: String) {
+        cloudService?.syncBlockedUsers(myHandle)
+    }
+
+    suspend fun updateMessageReaction(messageId: Long, cloudDocId: String?, reaction: String?) {
+        dao.updateMessageReaction(messageId, reaction)
+        if (!cloudDocId.isNullOrBlank()) {
+            cloudService?.updateMessageReactionInCloud(cloudDocId, reaction)
+        }
     }
 
     suspend fun purgeExpiredMessages() {

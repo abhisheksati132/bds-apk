@@ -38,7 +38,8 @@ data class ConversationEntity(
     val disappearingTimerSeconds: Long = 0, // 0 = disabled, 30 = 30s, 86400 = 24h
     val isEncrypted: Boolean = true,
     val keyFingerprint: String = "8A:F2:1C:99:B4:63",
-    val cloudDocId: String? = null
+    val cloudDocId: String? = null,
+    val avatarUrl: String? = null
 )
 
 @Entity(tableName = "messages")
@@ -73,7 +74,9 @@ data class ContactEntity(
     val avatarTextHex: String,
     val publicKey: String,
     val isVerified: Boolean = true,
-    val about: String = "Available"
+    val about: String = "Available",
+    val isBlocked: Boolean = false,
+    val avatarUrl: String? = null
 )
 
 @Entity(tableName = "statuses")

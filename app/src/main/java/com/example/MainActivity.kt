@@ -13,6 +13,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
@@ -31,6 +32,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.remote.CallSignal
 import com.example.ui.components.CleanBottomNavBar
+import com.example.ui.dialogs.ForwardMessageDialog
+import com.example.ui.dialogs.UserProfileDialog
 import com.example.ui.screens.*
 import com.example.ui.theme.MyApplicationTheme
 import com.example.ui.viewmodel.MainTab
@@ -45,13 +48,14 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            MyApplicationTheme {
-                val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-                val conversations by viewModel.conversations.collectAsStateWithLifecycle()
-                val contacts by viewModel.contacts.collectAsStateWithLifecycle()
-                val statuses by viewModel.statuses.collectAsStateWithLifecycle()
-                val calls by viewModel.calls.collectAsStateWithLifecycle()
+            val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+            val conversations by viewModel.conversations.collectAsStateWithLifecycle()
+            val contacts by viewModel.contacts.collectAsStateWithLifecycle()
+            val statuses by viewModel.statuses.collectAsStateWithLifecycle()
+            val calls by viewModel.calls.collectAsStateWithLifecycle()
 
+            val isDarkTheme = uiState.isDarkMode ?: isSystemInDarkTheme()
+            MyApplicationTheme(darkTheme = isDarkTheme) {
                 // Notification Permission for FCM (Android 13+)
                 val notificationPermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission(),
@@ -181,7 +185,11 @@ class MainActivity : ComponentActivity() {
                             onClearChat = { convId -> viewModel.clearChat(convId) },
                             onDeleteConversation = { convId -> viewModel.deleteConversation(convId) },
                             onSetReplyTo = { msg -> viewModel.setReplyingTo(msg) },
-                            onOpenFingerprint = { viewModel.setKeyFingerprintDialogOpen(true) }
+                            onOpenFingerprint = { viewModel.setKeyFingerprintDialogOpen(true) },
+                            onReactToMessage = { msg, reaction -> viewModel.reactToMessage(msg, reaction) },
+                            onTypingChanged = { isTyping -> viewModel.sendTyping(currentConv!!.id, isTyping) },
+                            onForwardMessage = { msg -> viewModel.setForwardDialogOpen(true, msg) },
+                            onBlockUser = { handle -> viewModel.blockUser(handle) }
                         )
 
                         // Safety number fingerprint dialog
@@ -228,8 +236,9 @@ class MainActivity : ComponentActivity() {
                                         cloudUsers = uiState.cloudUsers,
                                         myHandle = uiState.myHandle,
                                         presenceMap = uiState.presenceMap,
+                                        blockedHandles = uiState.blockedHandles,
                                         onStartChatWithContact = { contact ->
-                                            viewModel.startNewChatWithContact(contact)
+                                             viewModel.startNewChatWithContact(contact)
                                         },
                                         onStartChatWithCloudUser = { cloudUser ->
                                             viewModel.startNewChatWithCloudUser(cloudUser)
@@ -243,6 +252,8 @@ class MainActivity : ComponentActivity() {
                                         onSearchCloudPeer = { handle, onResult ->
                                             viewModel.searchAndAddCloudPeer(handle, onResult)
                                         },
+                                        onBlockUser = { handle -> viewModel.blockUser(handle) },
+                                        onUnblockUser = { handle -> viewModel.unblockUser(handle) },
                                         isSearchingCloud = uiState.isSearchingCloud
                                     )
                                 }
@@ -269,7 +280,12 @@ class MainActivity : ComponentActivity() {
                                         onPanicWipeData = { viewModel.panicWipeAllData() },
                                         onUpdateHandle = { handle -> viewModel.updateMyHandle(handle) },
                                         onRotateKeys = { viewModel.rotateMyKeys() },
-                                        onOpenAuthDialog = { viewModel.setAuthDialogOpen(true) }
+                                        onOpenAuthDialog = { viewModel.setAuthDialogOpen(true) },
+                                        onToggleDarkMode = { mode -> viewModel.setDarkMode(mode) },
+                                        onOpenProfileDialog = { viewModel.setUserProfileDialogOpen(true) },
+                                        onToggleNotificationSounds = { enabled -> viewModel.toggleNotificationSound(enabled) },
+                                        onSetVibrationPattern = { pattern -> viewModel.setVibrationPattern(pattern) },
+                                        onTestVibration = { viewModel.testVibration() }
                                     )
                                 }
                             }
@@ -376,6 +392,33 @@ class MainActivity : ComponentActivity() {
                                     ) {
                                         Text("Decline")
                                     }
+                                }
+                            )
+                        }
+
+                        // User Profile & Avatar Customization Dialog
+                        if (uiState.isUserProfileDialogOpen) {
+                            UserProfileDialog(
+                                uiState = uiState,
+                                onDismiss = { viewModel.setUserProfileDialogOpen(false) },
+                                onUploadAvatar = { uri -> viewModel.uploadAndSetAvatar(uri) },
+                                onUpdateProfile = { name, about, bgHex, textHex ->
+                                    viewModel.updateProfile(name, about, bgHex, textHex)
+                                },
+                                onRemoveAvatar = { viewModel.removeAvatar() }
+                            )
+                        }
+
+                        // Forward Message Dialog
+                        val messageToForward = uiState.forwardingMessage
+                        if (messageToForward != null) {
+                            ForwardMessageDialog(
+                                messageToForward = messageToForward,
+                                conversations = conversations,
+                                currentConversationId = uiState.activeConversationId,
+                                onDismiss = { viewModel.setForwardDialogOpen(false) },
+                                onSelectTargetConversation = { targetConvId ->
+                                    viewModel.forwardMessageTo(targetConvId, messageToForward)
                                 }
                             )
                         }

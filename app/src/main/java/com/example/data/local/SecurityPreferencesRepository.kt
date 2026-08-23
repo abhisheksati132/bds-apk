@@ -20,6 +20,21 @@ class SecurityPreferencesRepository(private val context: Context) {
         val KEY_PIN_ENABLED = booleanPreferencesKey("pin_enabled")
         val KEY_SCREENSHOT_PROTECTED = booleanPreferencesKey("screenshot_protected")
         val KEY_DEFAULT_DISAPPEARING = longPreferencesKey("default_disappearing_seconds")
+        val KEY_DARK_MODE = booleanPreferencesKey("dark_mode_enabled")
+        val KEY_NOTIFICATION_SOUNDS = booleanPreferencesKey("notification_sounds_enabled")
+        val KEY_VIBRATION_PATTERN = stringPreferencesKey("vibration_pattern")
+    }
+
+    val isDarkModeFlow: Flow<Boolean?> = context.dataStore.data.map { preferences ->
+        preferences[KEY_DARK_MODE]
+    }
+
+    val notificationSoundsFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_NOTIFICATION_SOUNDS] ?: true
+    }
+
+    val vibrationPatternFlow: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[KEY_VIBRATION_PATTERN] ?: "DEFAULT"
     }
 
     val pinCodeFlow: Flow<String> = context.dataStore.data.map { preferences ->
@@ -60,6 +75,28 @@ class SecurityPreferencesRepository(private val context: Context) {
     suspend fun setDefaultDisappearingSeconds(seconds: Long) {
         context.dataStore.edit { preferences ->
             preferences[KEY_DEFAULT_DISAPPEARING] = seconds
+        }
+    }
+
+    suspend fun setDarkMode(enabled: Boolean?) {
+        context.dataStore.edit { preferences ->
+            if (enabled == null) {
+                preferences.remove(KEY_DARK_MODE)
+            } else {
+                preferences[KEY_DARK_MODE] = enabled
+            }
+        }
+    }
+
+    suspend fun setNotificationSounds(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_NOTIFICATION_SOUNDS] = enabled
+        }
+    }
+
+    suspend fun setVibrationPattern(pattern: String) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_VIBRATION_PATTERN] = pattern
         }
     }
 

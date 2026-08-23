@@ -42,6 +42,15 @@ interface MessengerDao {
     @Update
     suspend fun updateMessage(message: MessageEntity)
 
+    @Query("UPDATE messages SET reaction = :reaction WHERE id = :id")
+    suspend fun updateMessageReaction(id: Long, reaction: String?)
+
+    @Query("UPDATE messages SET reaction = :reaction WHERE cloudMsgDocId = :cloudDocId")
+    suspend fun updateMessageReactionByCloudDocId(cloudDocId: String, reaction: String?)
+
+    @Query("SELECT * FROM messages WHERE cloudMsgDocId = :cloudDocId LIMIT 1")
+    suspend fun getMessageByCloudDocId(cloudDocId: String): MessageEntity?
+
     @Query("DELETE FROM messages WHERE id = :id")
     suspend fun deleteMessage(id: Long)
 
@@ -54,6 +63,15 @@ interface MessengerDao {
     // Contacts
     @Query("SELECT * FROM contacts ORDER BY name ASC")
     fun getAllContacts(): Flow<List<ContactEntity>>
+
+    @Query("SELECT * FROM contacts WHERE isBlocked = 1")
+    fun getBlockedContacts(): Flow<List<ContactEntity>>
+
+    @Query("SELECT isBlocked FROM contacts WHERE handle = :handle LIMIT 1")
+    suspend fun isContactBlocked(handle: String): Boolean?
+
+    @Query("UPDATE contacts SET isBlocked = :isBlocked WHERE handle = :handle")
+    suspend fun setContactBlocked(handle: String, isBlocked: Boolean)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertContact(contact: ContactEntity)

@@ -39,6 +39,7 @@ data class CloudUser(
     val publicKey: String = "",
     val avatarBgHex: String = "#DDE1FF",
     val avatarTextHex: String = "#001453",
+    val avatarUrl: String = "",
     val about: String = "Available",
     val isOnline: Boolean = false,
     val fcmToken: String = ""
@@ -67,6 +68,11 @@ class FirebaseCloudService(
     private val _presenceMap = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     val presenceMap: StateFlow<Map<String, Boolean>> = _presenceMap.asStateFlow()
 
+    // Blocked users set for fast lookup
+    private val _blockedUsers = MutableStateFlow<Set<String>>(emptySet())
+    val blockedUsers: StateFlow<Set<String>> = _blockedUsers.asStateFlow()
+
+    private var typingListener: ListenerRegistration? = null
     private var currentUserHandle: String = ""
 
     init {
@@ -299,6 +305,12 @@ class FirebaseCloudService(
                             val senderHandle = doc.getString("senderHandle") ?: continue
                             if (senderHandle == cleanHandle) continue // Ignore own messages
 
+                            // If sender is blocked, ignore incoming message
+                            if (_blockedUsers.value.contains(senderHandle.lowercase().trim())) {
+                                Log.d(TAG, "Dropped message from blocked user: $senderHandle")
+                                continue
+                            }
+
                             val cipherText = doc.getString("cipherText") ?: ""
                             val timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
                             val msgType = doc.getString("type") ?: MessageType.TEXT.name
@@ -311,6 +323,7 @@ class FirebaseCloudService(
                             val groupId = doc.getString("groupId")
                             val groupName = doc.getString("groupName")
                             val groupMembers = (doc.get("groupMembers") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                            val reaction = doc.getString("reaction")
                             val docId = doc.id
 
                             // Process message in background
@@ -329,6 +342,7 @@ class FirebaseCloudService(
                                     groupId = groupId,
                                     groupName = groupName,
                                     groupMembers = groupMembers,
+                                    reaction = reaction,
                                     cloudDocId = docId
                                 )
 
@@ -361,8 +375,19 @@ class FirebaseCloudService(
         groupId: String? = null,
         groupName: String? = null,
         groupMembers: List<String> = emptyList(),
+        reaction: String? = null,
         cloudDocId: String? = null
     ) {
+        if (cloudDocId != null) {
+            val existing = dao.getMessageByCloudDocId(cloudDocId)
+            if (existing != null) {
+                if (existing.reaction != reaction) {
+                    dao.updateMessageReaction(existing.id, reaction)
+                }
+                return
+            }
+        }
+
         val conversationKey = if (isGroup && groupId != null) groupId else senderHandle
         var conv = dao.getConversationByHandle(conversationKey)
         val conversationId: Long
@@ -423,6 +448,7 @@ class FirebaseCloudService(
             isDisappearing = disappearingSeconds > 0,
             expiresAtTimestamp = computedExpiresAt,
             replyToText = replyToText,
+            reaction = reaction,
             cloudMsgDocId = cloudDocId
         )
 
@@ -528,7 +554,191 @@ class FirebaseCloudService(
     }
 
     // ==========================================
-    // 5. GROUP CHAT CREATION IN FIRESTORE
+    // 5. CLEAR CHAT (REMOTE DELETION)
+    // ==========================================
+    suspend fun clearChatInCloud(
+        myHandle: String,
+        peerHandle: String,
+        isGroup: Boolean = false,
+        groupId: String? = null
+    ) {
+        val fs = firestore ?: return
+        val cleanMe = myHandle.lowercase().replace("@", "").trim()
+        val cleanPeer = peerHandle.lowercase().replace("@", "").trim()
+
+        try {
+            if (isGroup && !groupId.isNullOrBlank()) {
+                val groupQuery = fs.collection("messages")
+                    .whereEqualTo("groupId", groupId)
+                    .limit(100)
+                    .get()
+                    .await()
+                for (doc in groupQuery.documents) {
+                    doc.reference.delete().await()
+                }
+            } else {
+                val directQuery1 = fs.collection("messages")
+                    .whereEqualTo("senderHandle", cleanMe)
+                    .whereEqualTo("recipientHandle", cleanPeer)
+                    .limit(100)
+                    .get()
+                    .await()
+                for (doc in directQuery1.documents) {
+                    doc.reference.delete().await()
+                }
+
+                val directQuery2 = fs.collection("messages")
+                    .whereEqualTo("senderHandle", cleanPeer)
+                    .whereEqualTo("recipientHandle", cleanMe)
+                    .limit(100)
+                    .get()
+                    .await()
+                for (doc in directQuery2.documents) {
+                    doc.reference.delete().await()
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to clear cloud messages: ${e.message}")
+        }
+    }
+
+    // ==========================================
+    // 6. REAL-TIME TYPING INDICATORS
+    // ==========================================
+    suspend fun setTypingStatus(threadKey: String, userHandle: String, isTyping: Boolean) {
+        val fs = firestore ?: return
+        val cleanThread = threadKey.lowercase().replace("@", "").trim()
+        val cleanUser = userHandle.lowercase().replace("@", "").trim()
+        if (cleanThread.isEmpty() || cleanUser.isEmpty()) return
+
+        try {
+            val docRef = fs.collection("chat_threads").document(cleanThread)
+            val updatePayload = mapOf(
+                "typing.$cleanUser" to isTyping,
+                "lastTypingTimestamp" to FieldValue.serverTimestamp()
+            )
+            docRef.set(updatePayload, SetOptions.merge()).await()
+        } catch (e: Exception) {
+            Log.d(TAG, "Failed to update typing status: ${e.message}")
+        }
+    }
+
+    fun observeTypingStatus(
+        threadKey: String,
+        peerHandle: String,
+        onTypingChanged: (Boolean) -> Unit
+    ): ListenerRegistration? {
+        val fs = firestore ?: return null
+        val cleanThread = threadKey.lowercase().replace("@", "").trim()
+        val cleanPeer = peerHandle.lowercase().replace("@", "").trim()
+        if (cleanThread.isEmpty() || cleanPeer.isEmpty()) return null
+
+        typingListener?.remove()
+        try {
+            typingListener = fs.collection("chat_threads").document(cleanThread)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.w(TAG, "Typing indicator listener error: ${error.message}")
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null && snapshot.exists()) {
+                        val typingMap = snapshot.get("typing") as? Map<*, *>
+                        val isTyping = typingMap?.get(cleanPeer) as? Boolean ?: false
+                        onTypingChanged(isTyping)
+                    } else {
+                        onTypingChanged(false)
+                    }
+                }
+            return typingListener
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to observe typing status: ${e.message}")
+            return null
+        }
+    }
+
+    // ==========================================
+    // 7. BLOCK / UNBLOCK USERS
+    // ==========================================
+    suspend fun blockUser(myHandle: String, peerHandle: String) {
+        val fs = firestore ?: return
+        val cleanMe = myHandle.lowercase().replace("@", "").trim()
+        val cleanPeer = peerHandle.lowercase().replace("@", "").trim()
+        if (cleanMe.isEmpty() || cleanPeer.isEmpty()) return
+
+        try {
+            // Update Firestore user profile
+            fs.collection("users").document(cleanMe).update(
+                "blockedUsers", FieldValue.arrayUnion(cleanPeer)
+            ).await()
+
+            _blockedUsers.value = _blockedUsers.value + cleanPeer
+            dao.setContactBlocked(cleanPeer, true)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to block user in cloud: ${e.message}")
+            _blockedUsers.value = _blockedUsers.value + cleanPeer
+            dao.setContactBlocked(cleanPeer, true)
+        }
+    }
+
+    suspend fun unblockUser(myHandle: String, peerHandle: String) {
+        val fs = firestore ?: return
+        val cleanMe = myHandle.lowercase().replace("@", "").trim()
+        val cleanPeer = peerHandle.lowercase().replace("@", "").trim()
+        if (cleanMe.isEmpty() || cleanPeer.isEmpty()) return
+
+        try {
+            // Update Firestore user profile
+            fs.collection("users").document(cleanMe).update(
+                "blockedUsers", FieldValue.arrayRemove(cleanPeer)
+            ).await()
+
+            _blockedUsers.value = _blockedUsers.value - cleanPeer
+            dao.setContactBlocked(cleanPeer, false)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to unblock user in cloud: ${e.message}")
+            _blockedUsers.value = _blockedUsers.value - cleanPeer
+            dao.setContactBlocked(cleanPeer, false)
+        }
+    }
+
+    suspend fun syncBlockedUsers(myHandle: String) {
+        val fs = firestore ?: return
+        val cleanMe = myHandle.lowercase().replace("@", "").trim()
+        if (cleanMe.isEmpty()) return
+
+        try {
+            val doc = fs.collection("users").document(cleanMe).get().await()
+            if (doc.exists()) {
+                val list = (doc.get("blockedUsers") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
+                val set = list.map { it.lowercase().trim() }.toSet()
+                _blockedUsers.value = set
+                for (b in set) {
+                    dao.setContactBlocked(b, true)
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Failed to sync blocked users: ${e.message}")
+        }
+    }
+
+    // ==========================================
+    // 8. EMOJI REACTIONS IN FIRESTORE
+    // ==========================================
+    suspend fun updateMessageReactionInCloud(cloudDocId: String, reaction: String?) {
+        val fs = firestore ?: return
+        if (cloudDocId.isBlank()) return
+
+        try {
+            fs.collection("messages").document(cloudDocId).update(
+                "reaction", reaction ?: ""
+            ).await()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to update reaction in cloud: ${e.message}")
+        }
+    }
+
+    // ==========================================
+    // 9. GROUP CHAT CREATION IN FIRESTORE
     // ==========================================
     suspend fun createGroupInCloud(
         groupName: String,
@@ -595,6 +805,85 @@ class FirebaseCloudService(
         } catch (e: Exception) {
             Log.e(TAG, "Local image save fallback error: ${e.message}")
             imageUri.toString()
+        }
+    }
+
+    /**
+     * Upload User Avatar image to Firebase Storage and return download URL.
+     */
+    suspend fun uploadUserAvatar(
+        imageUri: Uri,
+        handle: String
+    ): String? {
+        val cleanHandle = handle.lowercase().replace("@", "").trim()
+        val st = storage
+        if (st != null) {
+            try {
+                val avatarRef = st.reference.child("user_avatars/${cleanHandle}_${System.currentTimeMillis()}.jpg")
+                val stream = context.contentResolver.openInputStream(imageUri)
+                if (stream != null) {
+                    avatarRef.putStream(stream).await()
+                    val downloadUrl = avatarRef.downloadUrl.await().toString()
+                    return downloadUrl
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Firebase Storage avatar upload failed: ${e.message}. Using local file.")
+            }
+        }
+
+        // Local fallback for offline mode
+        return try {
+            val localFile = File(context.filesDir, "avatar_${cleanHandle}.jpg")
+            context.contentResolver.openInputStream(imageUri)?.use { input ->
+                FileOutputStream(localFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            Uri.fromFile(localFile).toString()
+        } catch (e: Exception) {
+            Log.e(TAG, "Local avatar save fallback error: ${e.message}")
+            imageUri.toString()
+        }
+    }
+
+    /**
+     * Updates user's profile info (avatar, display name, status/about) in Firestore.
+     */
+    suspend fun updateUserProfile(
+        handle: String,
+        displayName: String,
+        about: String,
+        avatarUrl: String? = null,
+        avatarBgHex: String? = null,
+        avatarTextHex: String? = null
+    ): Boolean {
+        val fs = firestore ?: return false
+        val clean = handle.lowercase().replace("@", "").trim()
+        if (clean.isEmpty()) return false
+
+        return try {
+            val updates = hashMapOf<String, Any>(
+                "displayName" to displayName,
+                "about" to about,
+                "lastActive" to FieldValue.serverTimestamp()
+            )
+            if (avatarUrl != null) {
+                updates["avatarUrl"] = avatarUrl
+            }
+            if (avatarBgHex != null) {
+                updates["avatarBgHex"] = avatarBgHex
+            }
+            if (avatarTextHex != null) {
+                updates["avatarTextHex"] = avatarTextHex
+            }
+
+            fs.collection("users").document(clean)
+                .set(updates, SetOptions.merge())
+                .await()
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating profile for $clean: ${e.message}")
+            false
         }
     }
 
@@ -674,6 +963,7 @@ class FirebaseCloudService(
                     publicKey = snapshot.getString("publicKey") ?: "ECDH-P256",
                     avatarBgHex = snapshot.getString("avatarBgHex") ?: "#DDE1FF",
                     avatarTextHex = snapshot.getString("avatarTextHex") ?: "#001453",
+                    avatarUrl = snapshot.getString("avatarUrl") ?: "",
                     about = snapshot.getString("about") ?: "Available",
                     isOnline = isOnlinePresence,
                     fcmToken = snapshot.getString("fcmToken") ?: ""
@@ -701,6 +991,7 @@ class FirebaseCloudService(
                     publicKey = doc.getString("publicKey") ?: "ECDH-P256",
                     avatarBgHex = doc.getString("avatarBgHex") ?: "#DDE1FF",
                     avatarTextHex = doc.getString("avatarTextHex") ?: "#001453",
+                    avatarUrl = doc.getString("avatarUrl") ?: "",
                     about = doc.getString("about") ?: "Available",
                     isOnline = isOnlinePresence,
                     fcmToken = doc.getString("fcmToken") ?: ""
@@ -740,6 +1031,7 @@ class FirebaseCloudService(
                             publicKey = doc.getString("publicKey") ?: "ECDH-P256",
                             avatarBgHex = doc.getString("avatarBgHex") ?: "#DDE1FF",
                             avatarTextHex = doc.getString("avatarTextHex") ?: "#001453",
+                            avatarUrl = doc.getString("avatarUrl") ?: "",
                             about = doc.getString("about") ?: "Available",
                             isOnline = isOnline,
                             fcmToken = doc.getString("fcmToken") ?: ""
