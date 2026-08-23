@@ -1,36 +1,22 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Primary Conversation Bubble -->
+    
+    <!-- Clean Minimalist Infinity Loop - Primary Ribbon -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M32,32 C27.6,32 24,35.6 24,40 L24,62 C24,66.4 27.6,70 32,70 L36,70 L36,78 L46,70 L64,70 C68.4,70 72,66.4 72,62 L72,40 C72,35.6 68.4,32 64,32 Z" />
-    <!-- Secondary Interconnected Bubble (Modern Overlay) -->
-    <path
-        android:fillColor="#0066FF"
-        android:pathData="M52,44 C48.7,44 46,46.7 46,50 L46,68 C46,71.3 48.7,74 52,74 L68,74 L76,80 L76,74 L80,74 C83.3,74 86,71.3 86,68 L86,50 C86,46.7 83.3,44 80,44 Z" />
-    <!-- Pulse Connection Nodes inside Primary Bubble -->
-    <path
-        android:fillColor="#0066FF"
-        android:pathData="M36,51 A3,3 0 1,0 42,51 A3,3 0 1,0 36,51 Z" />
-    <path
-        android:fillColor="#0066FF"
-        android:pathData="M46,51 A3,3 0 1,0 52,51 A3,3 0 1,0 46,51 Z" />
-    <path
-        android:fillColor="#0066FF"
-        android:pathData="M56,51 A3,3 0 1,0 62,51 A3,3 0 1,0 56,51 Z" />
-    <!-- Pulse Connection Nodes inside Overlay Bubble -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M58,59 A2.5,2.5 0 1,0 63,59 A2.5,2.5 0 1,0 58,59 Z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M66,59 A2.5,2.5 0 1,0 71,59 A2.5,2.5 0 1,0 66,59 Z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M74,59 A2.5,2.5 0 1,0 79,59 A2.5,2.5 0 1,0 74,59 Z" />
-</vector>
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M 54,54 C 61,43 70,39 77,39 C 85,39 91,45 91,54 C 91,63 85,69 77,69 C 70,69 61,65 54,54 C 47,43 38,39 31,39 C 23,39 17,45 17,54 C 17,63 23,69 31,69 C 38,69 47,65 54,54 Z" />
 
+    <!-- Minimalist Subtle Secure Node Interlock -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M 54,54 m -2.5,0 a 2.5,2.5 0 1,0 5,0 a 2.5,2.5 0 1,0 -5,0" />
+        
+</vector>

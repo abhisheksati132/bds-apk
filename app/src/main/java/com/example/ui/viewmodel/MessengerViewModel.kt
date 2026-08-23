@@ -20,8 +20,10 @@ import com.example.util.AudioPlayerHelper
 import com.example.util.AudioRecorderHelper
 import com.example.util.HapticHelper
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 enum class MainTab {
@@ -731,7 +733,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
         voiceRecordJob?.cancel()
         voiceRecordJob = viewModelScope.launch {
             var count = 0
-            while (isActive) {
+            while (currentCoroutineContext().isActive) {
                 delay(100)
                 count++
                 val amp = audioRecorderHelper.getMaxAmplitude()

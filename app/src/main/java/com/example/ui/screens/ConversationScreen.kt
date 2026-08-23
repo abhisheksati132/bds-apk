@@ -419,6 +419,7 @@ fun ConversationScreen(
                     ) { message ->
                         SwipeableMessageBubble(
                             message = message,
+                            uiState = uiState,
                             onReply = { onSetReplyTo(message) },
                             onDoubleTapHeart = {
                                 val current = message.reaction
@@ -427,7 +428,8 @@ fun ConversationScreen(
                             },
                             onInspectCipher = { selectedMessageForCipher = message },
                             onLongClickReaction = { selectedMessageForReaction = message },
-                            onImageClick = { previewImageUrl = it }
+                            onImageClick = { previewImageUrl = it },
+                            onTogglePlayVoiceNote = onTogglePlayVoiceNote
                         )
                     }
 
@@ -1008,11 +1010,13 @@ fun AttachmentOption(
 @Composable
 fun SwipeableMessageBubble(
     message: MessageEntity,
+    uiState: UiState,
     onReply: () -> Unit,
     onDoubleTapHeart: () -> Unit,
     onInspectCipher: () -> Unit,
     onLongClickReaction: () -> Unit,
-    onImageClick: (String) -> Unit
+    onImageClick: (String) -> Unit,
+    onTogglePlayVoiceNote: (String?) -> Unit
 ) {
     var offsetX by remember { mutableStateOf(0f) }
     var showHeartPop by remember { mutableStateOf(false) }
@@ -1073,6 +1077,7 @@ fun SwipeableMessageBubble(
         ) {
             MessageBubble(
                 message = message,
+                uiState = uiState,
                 onReply = onReply,
                 onInspectCipher = onInspectCipher,
                 onLongClickReaction = onLongClickReaction,
@@ -1080,7 +1085,8 @@ fun SwipeableMessageBubble(
                     showHeartPop = true
                     onDoubleTapHeart()
                 },
-                onImageClick = onImageClick
+                onImageClick = onImageClick,
+                onTogglePlayVoiceNote = onTogglePlayVoiceNote
             )
 
             // Animated Popping Heart on Double Tap
@@ -1101,11 +1107,13 @@ fun SwipeableMessageBubble(
 @Composable
 fun MessageBubble(
     message: MessageEntity,
+    uiState: UiState,
     onReply: () -> Unit,
     onInspectCipher: () -> Unit,
     onLongClickReaction: () -> Unit,
     onDoubleTap: () -> Unit,
-    onImageClick: (String) -> Unit
+    onImageClick: (String) -> Unit,
+    onTogglePlayVoiceNote: (String?) -> Unit
 ) {
     val isMe = message.isMe
     val bubbleColor = if (isMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
