@@ -13,14 +13,14 @@ import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
     primary = DarkPrimary,
-    onPrimary = Color.White,
+    onPrimary = Color(0xFF09090B),
     primaryContainer = DarkPrimaryContainer,
     onPrimaryContainer = DarkOnPrimaryContainer,
-    secondary = Color(0xFF60A5FA),
-    onSecondary = Color(0xFF0F172A),
-    secondaryContainer = Color(0xFF1E293B),
-    onSecondaryContainer = Color(0xFFF8FAFC),
-    tertiary = Color(0xFF94A3B8),
+    secondary = Color(0xFFE4E4E7),
+    onSecondary = Color(0xFF09090B),
+    secondaryContainer = Color(0xFF1E1E1E),
+    onSecondaryContainer = Color(0xFFFAFAFA),
+    tertiary = Color(0xFFA1A1AA),
     background = DarkBackground,
     onBackground = DarkOnSurface,
     surface = DarkSurface,
@@ -28,21 +28,21 @@ private val DarkColorScheme = darkColorScheme(
     surfaceVariant = DarkSurfaceVariant,
     onSurfaceVariant = DarkOnSurfaceVariant,
     outline = DarkOutline,
-    outlineVariant = Color(0xFF1E293B),
+    outlineVariant = DarkOutlineVariant,
     error = ErrorRed,
-    errorContainer = Color(0xFF7F1D1D)
+    errorContainer = Color(0xFF450A0A)
 )
 
 private val LightColorScheme = lightColorScheme(
     primary = PrimaryLight,
-    onPrimary = Color.White,
+    onPrimary = Color(0xFFFFFFFF),
     primaryContainer = PrimaryContainerLight,
     onPrimaryContainer = OnPrimaryContainerLight,
-    secondary = Color(0xFF3B82F6),
-    onSecondary = Color.White,
+    secondary = Color(0xFF27272A),
+    onSecondary = Color(0xFFFFFFFF),
     secondaryContainer = SecondaryContainerLight,
     onSecondaryContainer = OnSecondaryContainerLight,
-    tertiary = Color(0xFF64748B),
+    tertiary = Color(0xFF71717A),
     background = LightBackground,
     onBackground = LightOnSurface,
     surface = LightSurface,
@@ -58,7 +58,7 @@ private val LightColorScheme = lightColorScheme(
 @Composable
 fun MyApplicationTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false, // Keep Clean Minimalism theme strictly intentional
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val colorScheme = when {

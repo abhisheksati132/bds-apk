@@ -40,7 +40,7 @@ fun ActiveCallScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0D0F14))
+            .background(MaterialTheme.colorScheme.background)
             .padding(24.dp)
             .windowInsetsPadding(WindowInsets.statusBars)
     ) {
@@ -49,40 +49,17 @@ fun ActiveCallScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Top Section: Encryption Verification Emojis
+            // Top Section: Call Duration & Status
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 16.dp)
+                modifier = Modifier.padding(top = 24.dp)
             ) {
-                Surface(
-                    color = Color.White.copy(alpha = 0.1f),
-                    shape = RoundedCornerShape(20.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = null,
-                            tint = Color(0xFFAEC6FF),
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = "E2E SAS Verification: 🦁 ⚡ 🔑 🛡️",
-                            color = Color.White,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-
                 Text(
-                    text = if (durationSeconds == 0) "Connecting encrypted channel..." else durationText,
-                    color = Color.White.copy(alpha = 0.7f),
-                    fontSize = 14.sp
+                    text = if (durationSeconds == 0) "Calling..." else durationText,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
                 )
             }
 
@@ -103,13 +80,13 @@ fun ActiveCallScreen(
                     text = peer.peerName,
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onBackground
                 )
 
                 Text(
-                    text = "Encrypted ${if (isVideo) "Video" else "Audio"} Stream",
-                    fontSize = 13.sp,
-                    color = Color(0xFFAEC6FF)
+                    text = "@${peer.peerHandle}",
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 

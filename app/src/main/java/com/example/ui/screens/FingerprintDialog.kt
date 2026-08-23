@@ -39,7 +39,7 @@ fun FingerprintDialog(
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary
                 )
-                Text(text = "Safety Number Verification")
+                Text(text = "Safety Number")
             }
         },
         text = {
@@ -49,8 +49,8 @@ fun FingerprintDialog(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "To verify that your end-to-end encryption with ${conversation.peerName} is secure, compare this fingerprint.",
-                    fontSize = 12.sp,
+                    text = "Compare this safety number with ${conversation.peerName} to verify your connection.",
+                    fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
@@ -67,8 +67,8 @@ fun FingerprintDialog(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "CRYPTOGRAPHIC SAFETY NUMBER",
-                            fontSize = 10.sp,
+                            text = "SAFETY NUMBER",
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
                             letterSpacing = 1.sp
@@ -80,12 +80,12 @@ fun FingerprintDialog(
                         )
 
                         Text(
-                            text = "${conversation.keyFingerprint}\n\n$safetyNum",
+                            text = "$safetyNum",
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
+                            fontSize = 16.sp,
                             textAlign = TextAlign.Center,
-                            lineHeight = 22.sp,
+                            lineHeight = 24.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }
@@ -102,8 +102,8 @@ fun FingerprintDialog(
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
-                        text = "Keys Authenticated & Zero-Knowledge Verified",
-                        fontSize = 11.sp,
+                        text = "Verified",
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = SuccessGreen
                     )

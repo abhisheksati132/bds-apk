@@ -70,7 +70,7 @@ data class UiState(
     val activeCallSignalId: String? = null,
     val myHandle: String = "",
     val myDisplayName: String = "",
-    val myAbout: String = "Zero-trust encrypted peer",
+    val myAbout: String = "Available",
     val myAvatarUrl: String? = null,
     val myAvatarBgHex: String = "#DDE1FF",
     val myAvatarTextHex: String = "#001453",
@@ -178,7 +178,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
         val savedHandle = prefs.getString("saved_handle", "") ?: ""
         val savedGuest = prefs.getBoolean("is_guest", false)
         val savedDisplayName = prefs.getString("saved_display_name", "") ?: ""
-        val savedAbout = prefs.getString("saved_about", "Zero-trust encrypted peer") ?: "Zero-trust encrypted peer"
+        val savedAbout = prefs.getString("saved_about", "Available") ?: "Available"
         val savedAvatarUrl = prefs.getString("saved_avatar_url", null)
         val savedAvatarBgHex = prefs.getString("saved_avatar_bg_hex", "#DDE1FF") ?: "#DDE1FF"
         val savedAvatarTextHex = prefs.getString("saved_avatar_text_hex", "#001453") ?: "#001453"

@@ -270,7 +270,7 @@ class FirebaseCloudService(
                 "publicKey" to publicKey,
                 "avatarBgHex" to "#DDE1FF",
                 "avatarTextHex" to "#001453",
-                "about" to "Zero-trust encrypted peer",
+                "about" to "Hey there! I am using itas.",
                 "lastActive" to FieldValue.serverTimestamp(),
                 "isOnline" to true,
                 "fcmToken" to fcmToken

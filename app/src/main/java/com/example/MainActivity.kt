@@ -421,8 +421,6 @@ class MainActivity : ComponentActivity() {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
                                     Text(currentIncomingCall.callerName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                                     Text("@${currentIncomingCall.callerHandle}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text("End-to-End Encrypted Live Call", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                 }
                             },
                             confirmButton = {

@@ -321,15 +321,8 @@ fun StatusScreen(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = null,
-                            tint = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.6f),
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            text = "End-to-End Encrypted • 24h Ephemeral",
+                            text = "Disappears in 24 hours",
                             color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.6f),
                             fontSize = 12.sp
                         )
@@ -342,18 +335,18 @@ fun StatusScreen(
     if (showAddDialog) {
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
-            title = { Text("New Encrypted Status") },
+            title = { Text("New Status") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "Status updates are end-to-end encrypted and disappear after 24 hours.",
+                        text = "Status updates disappear automatically after 24 hours.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     OutlinedTextField(
                         value = newStatusText,
                         onValueChange = { newStatusText = it },
-                        placeholder = { Text("What's on your mind? (Encrypted)") },
+                        placeholder = { Text("What's on your mind?") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
                         maxLines = 3

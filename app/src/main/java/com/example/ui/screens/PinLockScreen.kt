@@ -64,7 +64,7 @@ fun PinLockScreen(
                 }
 
                 Text(
-                    text = "Vault Locked",
+                    text = "App Locked",
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground

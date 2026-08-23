@@ -70,7 +70,7 @@ fun UserProfileDialog(
     }
 
     var aboutInput by remember(uiState.myAbout) {
-        mutableStateOf(uiState.myAbout.ifBlank { "Zero-trust encrypted peer" })
+        mutableStateOf(uiState.myAbout.ifBlank { "Available" })
     }
 
     var selectedPreset by remember {
@@ -290,7 +290,7 @@ fun UserProfileDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    listOf("🛡️ Encrypted", "🟢 Available", "🔒 Vault Locked").forEach { statusPreset ->
+                    listOf("💬 Chatting", "🟢 Available", "🌙 Busy").forEach { statusPreset ->
                         SuggestionChip(
                             onClick = { aboutInput = statusPreset },
                             label = { Text(statusPreset, fontSize = 11.sp) }

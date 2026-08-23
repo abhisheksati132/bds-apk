@@ -100,7 +100,7 @@ fun AuthScreen(
             )
 
             Text(
-                text = "End-to-End Encrypted Cloud Messaging & Calls",
+                text = "Fast, private messaging",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -492,27 +492,6 @@ fun AuthScreen(
                         }
                     }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Trust & Security Indicator
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Lock,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(14.dp)
-                )
-                Text(
-                    text = "ECDH-P256 Zero-Knowledge Cryptographic Vault",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontFamily = FontFamily.Monospace
-                )
             }
         }
     }

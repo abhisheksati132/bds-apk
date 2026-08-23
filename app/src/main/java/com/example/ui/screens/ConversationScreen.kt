@@ -1546,13 +1546,9 @@ private fun exportChatTranscript(
 ) {
     val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
     val stringBuilder = StringBuilder()
-    stringBuilder.append("=========================================\n")
-    stringBuilder.append("SECURE CHAT TRANSCRIPT\n")
-    stringBuilder.append("Conversation: ${conversation.peerName} (@${conversation.peerHandle})\n")
-    stringBuilder.append("Security Protocol: AES-256-CBC Zero-Knowledge Encryption\n")
+    stringBuilder.append("Chat Transcript: ${conversation.peerName} (@${conversation.peerHandle})\n")
     stringBuilder.append("Export Date: ${dateFormat.format(Date())}\n")
-    stringBuilder.append("Total Messages: ${messages.size}\n")
-    stringBuilder.append("=========================================\n\n")
+    stringBuilder.append("Total Messages: ${messages.size}\n\n")
 
     for (msg in messages) {
         val timeStr = dateFormat.format(Date(msg.timestamp))

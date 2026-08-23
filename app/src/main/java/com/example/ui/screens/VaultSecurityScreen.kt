@@ -565,7 +565,7 @@ fun VaultSecurityScreen(
 
             // Section 3: Appearance
             Text(
-                text = "Appearance",
+                text = "Theme & Appearance",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -579,17 +579,10 @@ fun VaultSecurityScreen(
                 shape = RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.weight(1f)
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = if (uiState.isDarkMode == true) Icons.Default.DarkMode else Icons.Default.LightMode,
@@ -598,16 +591,16 @@ fun VaultSecurityScreen(
                         )
                         Column {
                             Text(
-                                text = "Dark Mode",
+                                text = "App Theme",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = when (uiState.isDarkMode) {
-                                    true -> "Dark theme enabled"
-                                    false -> "Light theme enabled"
-                                    null -> "System default"
+                                    true -> "Pure AMOLED Black"
+                                    false -> "Clean White"
+                                    null -> "System Default"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -615,48 +608,29 @@ fun VaultSecurityScreen(
                         }
                     }
 
-                    Switch(
-                        checked = uiState.isDarkMode ?: false,
-                        onCheckedChange = { checked -> onToggleDarkMode(checked) },
-                        modifier = Modifier.testTag("switch_dark_mode")
-                    )
-                }
-            }
-
-            // Section 4: Privacy Standards Info
-            Text(
-                text = "Security Architecture",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 24.dp, top = 20.dp, bottom = 8.dp)
-            )
-
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 4.dp),
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.VerifiedUser, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Text(
-                            text = "End-to-End Encryption",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
+                        FilterChip(
+                            selected = uiState.isDarkMode == true,
+                            onClick = { onToggleDarkMode(true) },
+                            label = { Text("Dark (AMOLED)", fontSize = 11.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = uiState.isDarkMode == false,
+                            onClick = { onToggleDarkMode(false) },
+                            label = { Text("Light (White)", fontSize = 11.sp) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = uiState.isDarkMode == null,
+                            onClick = { onToggleDarkMode(null) },
+                            label = { Text("System", fontSize = 11.sp) },
+                            modifier = Modifier.weight(1f)
                         )
                     }
-                    Text(
-                        text = "• All chats and attachments are encrypted locally using AES-256.\n• Keys are generated on-device with zero plaintext stored in the cloud.\n• Complete zero-knowledge architecture.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = 18.sp
-                    )
                 }
             }
 
