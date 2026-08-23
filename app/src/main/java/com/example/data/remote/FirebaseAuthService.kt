@@ -137,9 +137,20 @@ class FirebaseAuthService(private val context: Context) {
             } else {
                 Result.failure(IllegalStateException("Unexpected credential type: ${credential.type}"))
             }
+        } catch (e: androidx.credentials.exceptions.NoCredentialException) {
+            Log.e(TAG, "NoCredentialException: ${e.message}")
+            Result.failure(IllegalStateException("No Google credentials found. Please add your app's SHA-1 fingerprint to Firebase Console > Project Settings, or sign in with Email / Guest mode."))
+        } catch (e: androidx.credentials.exceptions.GetCredentialCancellationException) {
+            Log.d(TAG, "User cancelled Google Sign-In")
+            Result.failure(IllegalStateException("Google Sign-In was cancelled"))
         } catch (e: Exception) {
             Log.e(TAG, "Google Sign-In failed: ${e.message}")
-            Result.failure(e)
+            val msg = if (e.message?.contains("10:") == true || e.message?.contains("DEVELOPER_ERROR") == true) {
+                "Google Sign-In developer error (10). Please ensure your APK SHA-1 fingerprint is registered in Firebase Console."
+            } else {
+                e.message ?: "Google Sign-In failed"
+            }
+            Result.failure(IllegalStateException(msg))
         }
     }
 

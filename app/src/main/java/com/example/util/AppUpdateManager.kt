@@ -1,4 +1,4 @@
-﻿package com.example.util
+package com.example.util
 
 import android.content.Context
 import android.content.Intent
@@ -6,7 +6,10 @@ import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.core.content.FileProvider
+import com.google.firebase.FirebaseApp
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
@@ -39,20 +42,63 @@ class AppUpdateManager(private val context: Context) {
     }
 
     suspend fun checkForUpdates(): Result<AppReleaseInfo?> = withContext(Dispatchers.IO) {
+        // Method 1: Check Firebase Firestore app_config/latest_release (Works seamlessly even with private GitHub repos!)
+        try {
+            if (FirebaseApp.getApps(context).isNotEmpty()) {
+                val firestore = FirebaseFirestore.getInstance()
+                val doc = firestore.collection("app_config").document("latest_release").get().await()
+                if (doc.exists()) {
+                    val tagName = doc.getString("tag_name") ?: doc.getString("version") ?: ""
+                    val downloadUrl = doc.getString("download_url") ?: ""
+                    val name = doc.getString("name") ?: tagName
+                    val notes = doc.getString("release_notes") ?: doc.getString("notes") ?: "Bug fixes and performance improvements."
+                    val apkSize = doc.getLong("apk_size_bytes") ?: 0L
+                    val publishedAt = doc.getString("published_at") ?: ""
+
+                    if (tagName.isNotBlank() && downloadUrl.isNotBlank()) {
+                        val currentVer = getCurrentVersionName().trim().lowercase().removePrefix("v")
+                        val latestVer = tagName.trim().lowercase().removePrefix("v")
+                        val hasUpdate = latestVer.isNotBlank() && latestVer != currentVer
+
+                        Log.d(TAG, "Checked update via Firestore: current=$currentVer, latest=$latestVer, hasUpdate=$hasUpdate")
+                        return@withContext Result.success(
+                            AppReleaseInfo(
+                                tagName = tagName,
+                                releaseName = name,
+                                releaseNotes = notes,
+                                downloadUrl = downloadUrl,
+                                apkSizeBytes = apkSize,
+                                publishedAt = publishedAt,
+                                isNewUpdateAvailable = hasUpdate
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Firestore update check skipped: ${e.message}")
+        }
+
+        // Method 2: Query GitHub Releases API
         try {
             val url = URL(GITHUB_API_URL)
             val conn = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
-                setRequestProperty("User-Agent", "PrivateMessengerApp")
+                setRequestProperty("User-Agent", "itasApp")
                 setRequestProperty("Accept", "application/vnd.github.v3+json")
                 connectTimeout = 10000
                 readTimeout = 10000
             }
 
             val responseCode = conn.responseCode
-            if (responseCode != 200) {
+            if (responseCode == 404) {
+                Log.w(TAG, "GitHub API returned 404. Repository is private or has no public releases.")
+                return@withContext Result.failure(
+                    IllegalStateException("No public release found (GitHub 404). Note: Private repositories hide releases from anonymous requests.")
+                )
+            } else if (responseCode != 200) {
                 Log.w(TAG, "GitHub API returned HTTP $responseCode")
-                return@withContext Result.failure(IllegalStateException("No release found (HTTP $responseCode)"))
+                return@withContext Result.failure(IllegalStateException("Update check returned HTTP $responseCode"))
             }
 
             val jsonStr = conn.inputStream.bufferedReader().use { it.readText() }

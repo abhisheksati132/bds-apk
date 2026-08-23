@@ -693,7 +693,7 @@ fun VaultSecurityScreen(
                             )
                             Column {
                                 Text(
-                                    text = "Private Messenger",
+                                    text = "itas",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.SemiBold
                                 )
