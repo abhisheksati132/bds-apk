@@ -544,10 +544,6 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
                     )
                 }
             }
-
-            if (!cloudService.isCloudAvailable()) {
-                triggerSimulatedPeerReply(targetConversationId, originalMessage.text)
-            }
         }
     }
 
