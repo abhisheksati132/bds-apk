@@ -15,6 +15,8 @@ import com.example.data.remote.CloudUser
 import com.example.data.remote.FirebaseAuthService
 import com.example.data.remote.FirebaseCloudService
 import com.example.data.repository.MessengerRepository
+import com.example.util.AppReleaseInfo
+import com.example.util.AppUpdateManager
 import com.example.util.AudioPlaybackState
 import com.example.util.AudioPlayerHelper
 import com.example.util.AudioRecorderHelper
@@ -84,7 +86,16 @@ data class UiState(
     val cloudUsers: List<CloudUser> = emptyList(),
     val presenceMap: Map<String, Boolean> = emptyMap(),
     val isDarkMode: Boolean? = null,
-    val blockedHandles: Set<String> = emptySet()
+    val blockedHandles: Set<String> = emptySet(),
+    val currentAppVersion: String = "v1.0.0",
+    val availableUpdate: AppReleaseInfo? = null,
+    val isCheckingForUpdate: Boolean = false,
+    val isDownloadingUpdate: Boolean = false,
+    val updateDownloadProgress: Float = 0f,
+    val updateDownloadBytesProgress: String = "",
+    val downloadedUpdateFile: java.io.File? = null,
+    val isUpdateReadyToInstall: Boolean = false,
+    val updateStatusMessage: String? = null
 ) {
     val isAuthenticated: Boolean
         get() = authUser != null || isGuestUser || myHandle.isNotBlank()
@@ -96,6 +107,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
     private val securityPrefs = SecurityPreferencesRepository(application)
     private val audioRecorderHelper = AudioRecorderHelper(application)
     private val audioPlayerHelper = AudioPlayerHelper(application)
+    private val appUpdateManager = AppUpdateManager(application)
     private val repository: MessengerRepository
     private val cloudService: FirebaseCloudService
     private val authService: FirebaseAuthService
@@ -245,6 +257,8 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
 
+        _uiState.update { it.copy(currentAppVersion = appUpdateManager.getCurrentVersionName()) }
+        checkForUpdates(silent = true)
         loadRecentUsers()
     }
 
@@ -924,6 +938,96 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
                 avatarTextHex = textHex
             )
         }
+    }
+
+    fun checkForUpdates(silent: Boolean = false) {
+        viewModelScope.launch {
+            _uiState.update { 
+                it.copy(
+                    isCheckingForUpdate = true, 
+                    updateStatusMessage = if (!silent) "Checking for updates..." else null
+                ) 
+            }
+            val result = appUpdateManager.checkForUpdates()
+            result.onSuccess { info ->
+                _uiState.update {
+                    it.copy(
+                        isCheckingForUpdate = false,
+                        availableUpdate = if (info != null && info.isNewUpdateAvailable) info else null,
+                        updateStatusMessage = if (!silent && (info == null || !info.isNewUpdateAvailable)) "You are using the latest version (${it.currentAppVersion})" else null
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(
+                        isCheckingForUpdate = false,
+                        updateStatusMessage = if (!silent) "Could not check updates: ${error.message}" else null
+                    )
+                }
+            }
+        }
+    }
+
+    fun startDownloadingUpdate() {
+        val update = _uiState.value.availableUpdate ?: return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isDownloadingUpdate = true,
+                    updateDownloadProgress = 0f,
+                    updateDownloadBytesProgress = ""
+                )
+            }
+            val file = appUpdateManager.downloadApk(update.downloadUrl) { progress, currentBytes, totalBytes ->
+                val currentMb = String.format(java.util.Locale.getDefault(), "%.1f", currentBytes / (1024f * 1024f))
+                val totalMb = if (totalBytes > 0) String.format(java.util.Locale.getDefault(), "%.1f MB", totalBytes / (1024f * 1024f)) else ""
+                val bytesStr = if (totalMb.isNotEmpty()) "($currentMb / $totalMb)" else "(${currentMb}MB)"
+
+                _uiState.update {
+                    it.copy(
+                        updateDownloadProgress = progress,
+                        updateDownloadBytesProgress = bytesStr
+                    )
+                }
+            }
+
+            if (file != null && file.exists()) {
+                _uiState.update {
+                    it.copy(
+                        isDownloadingUpdate = false,
+                        downloadedUpdateFile = file,
+                        isUpdateReadyToInstall = true
+                    )
+                }
+                installDownloadedUpdate()
+            } else {
+                _uiState.update {
+                    it.copy(
+                        isDownloadingUpdate = false,
+                        updateStatusMessage = "Download failed. Please check internet connection."
+                    )
+                }
+            }
+        }
+    }
+
+    fun installDownloadedUpdate() {
+        val file = _uiState.value.downloadedUpdateFile ?: return
+        appUpdateManager.installApk(file)
+    }
+
+    fun dismissUpdateDialog() {
+        _uiState.update { 
+            it.copy(
+                availableUpdate = null, 
+                isUpdateReadyToInstall = false, 
+                isDownloadingUpdate = false 
+            ) 
+        }
+    }
+
+    fun clearUpdateStatusMessage() {
+        _uiState.update { it.copy(updateStatusMessage = null) }
     }
 
     fun togglePreventScreenshots(prevent: Boolean) {

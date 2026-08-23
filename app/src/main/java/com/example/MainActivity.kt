@@ -32,6 +32,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.remote.CallSignal
 import com.example.ui.components.CleanBottomNavBar
+import com.example.ui.dialogs.AppUpdateDialog
 import com.example.ui.dialogs.ForwardMessageDialog
 import com.example.ui.dialogs.UserProfileDialog
 import com.example.ui.screens.*
@@ -286,9 +287,27 @@ class MainActivity : ComponentActivity() {
                                         onOpenProfileDialog = { viewModel.setUserProfileDialogOpen(true) },
                                         onToggleNotificationSounds = { enabled -> viewModel.toggleNotificationSound(enabled) },
                                         onSetVibrationPattern = { pattern -> viewModel.setVibrationPattern(pattern) },
-                                        onTestVibration = { viewModel.testVibration() }
+                                        onTestVibration = { viewModel.testVibration() },
+                                        onCheckForUpdates = { viewModel.checkForUpdates(silent = false) }
                                     )
                                 }
+                            }
+                        }
+
+                        // In-App Auto-Updater Dialog
+                        if (uiState.availableUpdate != null || uiState.isDownloadingUpdate || uiState.isUpdateReadyToInstall) {
+                            uiState.availableUpdate?.let { updateInfo ->
+                                AppUpdateDialog(
+                                    releaseInfo = updateInfo,
+                                    currentVersion = uiState.currentAppVersion,
+                                    isDownloading = uiState.isDownloadingUpdate,
+                                    downloadProgress = uiState.updateDownloadProgress,
+                                    downloadBytesProgress = uiState.updateDownloadBytesProgress,
+                                    isReadyToInstall = uiState.isUpdateReadyToInstall,
+                                    onStartDownload = { viewModel.startDownloadingUpdate() },
+                                    onInstallDownloadedApk = { viewModel.installDownloadedUpdate() },
+                                    onDismiss = { viewModel.dismissUpdateDialog() }
+                                )
                             }
                         }
 
