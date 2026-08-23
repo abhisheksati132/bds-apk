@@ -12,7 +12,12 @@
           "package_name": "com.aistudio.privatemessenger.wzvyq"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "991162599567-dgjska9msq0keo4om1bhejub29ae0f44.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDtvdAvnkp_rTFazt-hHOwYLZRlM4ckCZA"
@@ -20,7 +25,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "991162599567-dgjska9msq0keo4om1bhejub29ae0f44.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
