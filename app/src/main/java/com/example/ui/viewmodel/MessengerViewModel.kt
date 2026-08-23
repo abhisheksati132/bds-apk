@@ -20,6 +20,7 @@ import com.example.util.AppUpdateManager
 import com.example.util.AudioPlaybackState
 import com.example.util.AudioPlayerHelper
 import com.example.util.AudioRecorderHelper
+import com.example.util.CallRingtoneHelper
 import com.example.util.HapticHelper
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -109,6 +110,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
     private val securityPrefs = SecurityPreferencesRepository(application)
     private val audioRecorderHelper = AudioRecorderHelper(application)
     private val audioPlayerHelper = AudioPlayerHelper(application)
+    private val callRingtoneHelper = CallRingtoneHelper(application)
     private val appUpdateManager = AppUpdateManager(application)
     private val repository: MessengerRepository
     private val cloudService: FirebaseCloudService
@@ -282,6 +284,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
             cloudService.startIncomingMessageListener(clean)
             cloudService.syncBlockedUsers(clean)
             cloudService.startIncomingCallListener(clean) { incoming ->
+                callRingtoneHelper.startRingtoneAndVibration()
                 _uiState.update { it.copy(incomingCall = incoming) }
             }
         }
@@ -865,6 +868,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun acceptIncomingCall() {
+        callRingtoneHelper.stop()
         val incoming = _uiState.value.incomingCall ?: return
         val peerConv = ConversationEntity(
             peerId = "u_${incoming.callerHandle}",
@@ -901,6 +905,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun rejectIncomingCall() {
+        callRingtoneHelper.stop()
         val incoming = _uiState.value.incomingCall ?: return
         viewModelScope.launch {
             cloudService.rejectCall(incoming.callId)
@@ -921,6 +926,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun endCall(sendSignal: Boolean = true) {
+        callRingtoneHelper.stop()
         callTimerJob?.cancel()
         val signalId = _uiState.value.activeCallSignalId
         if (sendSignal && signalId != null) {
@@ -931,6 +937,12 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
         callStateListener?.remove()
         callStateListener = null
         _uiState.update { it.copy(activeCall = null, activeCallSignalId = null, callDurationSeconds = 0, isCallMinimized = false) }
+    }
+
+    fun deleteMessage(messageId: Long, deleteForEveryone: Boolean = false) {
+        viewModelScope.launch {
+            repository.deleteMessage(messageId, deleteForEveryone)
+        }
     }
 
     fun postStatus(caption: String) {
@@ -1265,6 +1277,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
     override fun onCleared() {
         super.onCleared()
         cloudService.stopListener()
+        callRingtoneHelper.stop()
         audioPlayerHelper.release()
         audioRecorderHelper.cancelRecording()
         callTimerJob?.cancel()

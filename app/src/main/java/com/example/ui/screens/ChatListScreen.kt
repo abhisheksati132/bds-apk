@@ -4,6 +4,8 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,12 +23,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.widget.Toast
 import com.example.data.model.ConversationEntity
 import com.example.ui.components.AvatarView
 import com.example.ui.viewmodel.UiState
@@ -52,6 +60,7 @@ fun formatChatTime(timestamp: Long): String {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ChatListScreen(
     uiState: UiState,
@@ -60,11 +69,17 @@ fun ChatListScreen(
     onOpenNewChat: () -> Unit,
     onOpenVault: () -> Unit,
     onOpenAuth: () -> Unit = {},
+    onDeleteConversation: (Long) -> Unit = {},
+    onClearChat: (Long) -> Unit = {},
     onSearchQueryChanged: (String) -> Unit,
     onFilterSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var isSearchExpanded by remember { mutableStateOf(false) }
+    var selectedConvForOptions by remember { mutableStateOf<ConversationEntity?>(null) }
+    var convToDelete by remember { mutableStateOf<ConversationEntity?>(null) }
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
 
     val filteredConversations = remember(conversations, uiState.searchQuery, uiState.selectedFilter) {
         conversations.filter { conv ->
@@ -417,7 +432,8 @@ fun ChatListScreen(
                         Box(modifier = Modifier.animateItem()) {
                             ConversationListItem(
                                 conversation = conv,
-                                onClick = { onOpenConversation(conv.id) }
+                                onClick = { onOpenConversation(conv.id) },
+                                onLongClick = { selectedConvForOptions = conv }
                             )
                         }
                     }
@@ -444,25 +460,165 @@ fun ChatListScreen(
                 modifier = Modifier.size(22.dp)
             )
         }
+
+        // Conversation Long-Press Options Dialog
+        selectedConvForOptions?.let { conv ->
+            AlertDialog(
+                onDismissRequest = { selectedConvForOptions = null },
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        AvatarView(
+                            name = conv.peerName,
+                            bgHex = conv.avatarBgColorHex,
+                            textHex = conv.avatarTextColorHex,
+                            size = 36.dp
+                        )
+                        Column {
+                            Text(conv.peerName, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("@${conv.peerHandle}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    clipboardManager.setText(AnnotatedString("@${conv.peerHandle}"))
+                                    Toast.makeText(context, "Handle copied to clipboard", Toast.LENGTH_SHORT).show()
+                                    selectedConvForOptions = null
+                                },
+                            color = Color.Transparent
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text("Copy Handle", fontSize = 14.sp)
+                            }
+                        }
+
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    val id = conv.id
+                                    selectedConvForOptions = null
+                                    onClearChat(id)
+                                    Toast.makeText(context, "Chat cleared", Toast.LENGTH_SHORT).show()
+                                },
+                            color = Color.Transparent
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.CleaningServices, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text("Clear Chat Messages", fontSize = 14.sp)
+                            }
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    val target = conv
+                                    selectedConvForOptions = null
+                                    convToDelete = target
+                                },
+                            color = Color.Transparent
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text("Delete Conversation", fontSize = 14.sp, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { selectedConvForOptions = null }) {
+                        Text("Close")
+                    }
+                }
+            )
+        }
+
+        // Delete Conversation Confirmation Dialog
+        convToDelete?.let { conv ->
+            AlertDialog(
+                onDismissRequest = { convToDelete = null },
+                icon = {
+                    Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                },
+                title = {
+                    Text("Delete Conversation?", fontWeight = FontWeight.Bold)
+                },
+                text = {
+                    Text("Are you sure you want to delete the entire chat with ${conv.peerName}? All local messages will be permanently removed.")
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val id = conv.id
+                            convToDelete = null
+                            onDeleteConversation(id)
+                            Toast.makeText(context, "Conversation deleted", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Delete", color = MaterialTheme.colorScheme.onError)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { convToDelete = null }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ConversationListItem(
     conversation: ConversationEntity,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
 ) {
     val hasUnread = conversation.unreadCount > 0
+    val haptic = LocalHapticFeedback.current
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("conversation_item_${conversation.id}")
             .clip(RoundedCornerShape(20.dp))
-            .clickable(
+            .combinedClickable(
                 interactionSource = remember { MutableInteractionSource() },
-                indication = ripple()
-            ) { onClick() },
+                indication = ripple(),
+                onClick = onClick,
+                onLongClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongClick()
+                }
+            ),
         color = if (hasUnread) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else Color.Transparent,
         shape = RoundedCornerShape(20.dp)
     ) {

@@ -745,6 +745,16 @@ class FirebaseCloudService(
         }
     }
 
+    suspend fun deleteMessageFromCloud(cloudDocId: String) {
+        val fs = firestore ?: return
+        if (cloudDocId.isBlank()) return
+        try {
+            fs.collection("messages").document(cloudDocId).delete().await()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to delete message from cloud: ${e.message}")
+        }
+    }
+
     // ==========================================
     // 9. GROUP CHAT CREATION IN FIRESTORE
     // ==========================================

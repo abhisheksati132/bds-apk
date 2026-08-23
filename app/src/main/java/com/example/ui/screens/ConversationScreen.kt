@@ -89,6 +89,7 @@ fun ConversationScreen(
     onUpdateDisappearingTimer: (conversationId: Long, timerSeconds: Long) -> Unit,
     onClearChat: (Long) -> Unit,
     onDeleteConversation: (Long) -> Unit,
+    onDeleteMessage: (MessageEntity, Boolean) -> Unit = { _, _ -> },
     onSetReplyTo: (MessageEntity?) -> Unit,
     onOpenFingerprint: () -> Unit,
     onReactToMessage: (MessageEntity, String?) -> Unit = { _, _ -> },
@@ -107,6 +108,7 @@ fun ConversationScreen(
     var selectedWallpaper by remember { mutableStateOf(ChatWallpaper.MINIMAL) }
     var selectedMessageForCipher by remember { mutableStateOf<MessageEntity?>(null) }
     var selectedMessageForReaction by remember { mutableStateOf<MessageEntity?>(null) }
+    var messageToDelete by remember { mutableStateOf<MessageEntity?>(null) }
     var previewImageUrl by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -1011,7 +1013,78 @@ fun ConversationScreen(
                 selectedMessageForReaction = null
                 selectedMessageForCipher = msg
             },
+            onDelete = {
+                selectedMessageForReaction = null
+                messageToDelete = msg
+            },
             onDismiss = { selectedMessageForReaction = null }
+        )
+    }
+
+    // Delete Message Confirmation Dialog
+    messageToDelete?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { messageToDelete = null },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = {
+                Text("Delete Message", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    text = if (msg.isMe) "Delete this message? You can delete it for yourself or for everyone in this chat."
+                    else "Delete this message for yourself?",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            },
+            confirmButton = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (msg.isMe) {
+                        Button(
+                            onClick = {
+                                val target = messageToDelete
+                                messageToDelete = null
+                                if (target != null) {
+                                    onDeleteMessage(target, true)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Delete for Everyone", color = MaterialTheme.colorScheme.onError)
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            val target = messageToDelete
+                            messageToDelete = null
+                            if (target != null) {
+                                onDeleteMessage(target, false)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Delete for Me")
+                    }
+
+                    TextButton(
+                        onClick = { messageToDelete = null },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            },
+            dismissButton = null
         )
     }
 
@@ -1483,6 +1556,7 @@ fun MessageActionsDialog(
     onReply: () -> Unit,
     onCopyText: () -> Unit,
     onInspectCipher: () -> Unit,
+    onDelete: () -> Unit,
     onDismiss: () -> Unit
 ) {
     val emojis = listOf("❤️", "🔥", "👍", "😂", "😮", "🎉", "🙏")
@@ -1595,6 +1669,28 @@ fun MessageActionsDialog(
                                 Spacer(modifier = Modifier.width(14.dp))
                                 Text("Copy Text", fontWeight = FontWeight.Medium, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
                             }
+                        }
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 2.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onDelete()
+                            }
+                            .testTag("action_delete_message"),
+                        color = Color.Transparent
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Text("Delete", fontWeight = FontWeight.Medium, fontSize = 14.sp, color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }

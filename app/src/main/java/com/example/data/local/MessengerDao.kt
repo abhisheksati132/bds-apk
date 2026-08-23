@@ -51,6 +51,9 @@ interface MessengerDao {
     @Query("SELECT * FROM messages WHERE cloudMsgDocId = :cloudDocId LIMIT 1")
     suspend fun getMessageByCloudDocId(cloudDocId: String): MessageEntity?
 
+    @Query("SELECT * FROM messages WHERE id = :id LIMIT 1")
+    suspend fun getMessageById(id: Long): MessageEntity?
+
     @Query("DELETE FROM messages WHERE id = :id")
     suspend fun deleteMessage(id: Long)
 

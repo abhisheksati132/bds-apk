@@ -342,6 +342,15 @@ class MessengerRepository(
         dao.deleteConversation(conversationId)
     }
 
+    suspend fun deleteMessage(messageId: Long, deleteForEveryone: Boolean = false) {
+        val msg = dao.getMessageById(messageId)
+        dao.deleteMessage(messageId)
+        val cloudId = msg?.cloudMsgDocId
+        if (deleteForEveryone && !cloudId.isNullOrBlank()) {
+            cloudService?.deleteMessageFromCloud(cloudId)
+        }
+    }
+
     suspend fun clearChatMessages(conversationId: Long, myHandle: String = "") {
         val conv = dao.getConversationById(conversationId).firstOrNull()
         dao.deleteAllMessagesInConversation(conversationId)

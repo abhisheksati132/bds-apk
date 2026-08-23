@@ -212,6 +212,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onClearChat = { id -> viewModel.clearChat(id) },
                                     onDeleteConversation = { id -> viewModel.deleteConversation(id) },
+                                    onDeleteMessage = { msg, deleteForEveryone -> viewModel.deleteMessage(msg.id, deleteForEveryone) },
                                     onSetReplyTo = { msg -> viewModel.setReplyingTo(msg) },
                                     onOpenFingerprint = { viewModel.setKeyFingerprintDialogOpen(true) },
                                     onReactToMessage = { msg, reaction -> viewModel.reactToMessage(msg, reaction) },
@@ -263,6 +264,8 @@ class MainActivity : ComponentActivity() {
                                                     onOpenNewChat = { viewModel.setNewChatDialogOpen(true) },
                                                     onOpenVault = { viewModel.setTab(MainTab.VAULT_SECURITY) },
                                                     onOpenAuth = { viewModel.setAuthDialogOpen(true) },
+                                                    onDeleteConversation = { id -> viewModel.deleteConversation(id) },
+                                                    onClearChat = { id -> viewModel.clearChat(id) },
                                                     onSearchQueryChanged = { q -> viewModel.setSearchQuery(q) },
                                                     onFilterSelected = { f -> viewModel.setFilter(f) }
                                                 )
