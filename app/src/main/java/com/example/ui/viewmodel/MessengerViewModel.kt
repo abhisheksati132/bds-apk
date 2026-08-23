@@ -686,9 +686,9 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun deleteConversation(conversationId: Long) {
+        closeConversation()
         viewModelScope.launch {
             repository.deleteConversation(conversationId)
-            closeConversation()
         }
     }
 

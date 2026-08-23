@@ -177,15 +177,17 @@ class MainActivity : ComponentActivity() {
                                 viewModel.closeConversation()
                             }
 
-                            if (currentConv != null) {
+                            val safeConv = currentConv
+                            if (safeConv != null) {
+                                val convId = safeConv.id
                                 ConversationScreen(
-                                    conversation = currentConv!!,
+                                    conversation = safeConv,
                                     messages = messages,
                                     uiState = uiState,
                                     onBack = { viewModel.closeConversation() },
                                     onSendMessage = { text, isDisappearing, timer ->
                                         viewModel.sendMessage(
-                                            conversationId = currentConv!!.id,
+                                            conversationId = convId,
                                             text = text,
                                             isDisappearing = isDisappearing,
                                             disappearingTimerSeconds = timer
@@ -193,7 +195,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onSendImage = { uri, isDisappearing, timer ->
                                         viewModel.sendImage(
-                                            conversationId = currentConv!!.id,
+                                            conversationId = convId,
                                             imageUri = uri,
                                             isDisappearing = isDisappearing,
                                             disappearingTimerSeconds = timer
@@ -202,18 +204,18 @@ class MainActivity : ComponentActivity() {
                                     onStartVoiceRecording = { viewModel.startVoiceRecording() },
                                     onCancelVoiceRecording = { viewModel.cancelVoiceRecording() },
                                     onFinishVoiceRecording = { duration, isDisappearing, timer ->
-                                        viewModel.finishVoiceRecording(currentConv!!.id, isDisappearing, timer)
+                                        viewModel.finishVoiceRecording(convId, isDisappearing, timer)
                                     },
                                     onStartCall = { peer, isVideo -> viewModel.startCall(peer, isVideo) },
-                                    onUpdateDisappearingTimer = { convId, seconds ->
-                                        viewModel.updateDisappearingTimer(convId, seconds)
+                                    onUpdateDisappearingTimer = { id, seconds ->
+                                        viewModel.updateDisappearingTimer(id, seconds)
                                     },
-                                    onClearChat = { convId -> viewModel.clearChat(convId) },
-                                    onDeleteConversation = { convId -> viewModel.deleteConversation(convId) },
+                                    onClearChat = { id -> viewModel.clearChat(id) },
+                                    onDeleteConversation = { id -> viewModel.deleteConversation(id) },
                                     onSetReplyTo = { msg -> viewModel.setReplyingTo(msg) },
                                     onOpenFingerprint = { viewModel.setKeyFingerprintDialogOpen(true) },
                                     onReactToMessage = { msg, reaction -> viewModel.reactToMessage(msg, reaction) },
-                                    onTypingChanged = { isTyping -> viewModel.sendTyping(currentConv!!.id, isTyping) },
+                                    onTypingChanged = { isTyping -> viewModel.sendTyping(convId, isTyping) },
                                     onForwardMessage = { msg -> viewModel.setForwardDialogOpen(true, msg) },
                                     onBlockUser = { handle -> viewModel.blockUser(handle) },
                                     onTogglePlayVoiceNote = { url -> viewModel.togglePlayVoiceNote(url) }
@@ -222,7 +224,7 @@ class MainActivity : ComponentActivity() {
                                 // Safety number fingerprint dialog
                                 if (uiState.isKeyFingerprintDialogOpen) {
                                     FingerprintDialog(
-                                        conversation = currentConv!!,
+                                        conversation = safeConv,
                                         myPublicKey = uiState.myPublicKey,
                                         onDismiss = { viewModel.setKeyFingerprintDialogOpen(false) }
                                     )

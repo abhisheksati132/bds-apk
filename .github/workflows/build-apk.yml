@@ -46,13 +46,20 @@ jobs:
           path: release-apk/itas.apk
           if-no-files-found: error
 
+      - name: Extract Version
+        id: get_version
+        run: |
+          VERSION=$(grep "versionName =" app/build.gradle.kts | head -1 | awk -F '"' '{print $2}')
+          echo "VERSION=v$VERSION" >> $GITHUB_ENV
+          echo "Building itas version v$VERSION"
+
       - name: Create Direct GitHub Release (Raw .APK Download)
         uses: softprops/action-gh-release@v2
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
         with:
-          tag_name: latest
-          name: "itas Latest APK"
-          body: "Direct APK build for itas. Download `itas.apk` below and install directly on your phone."
+          tag_name: ${{ env.VERSION }}
+          name: "itas ${{ env.VERSION }}"
+          body: "Direct APK build for itas ${{ env.VERSION }}. Download `itas.apk` below and install directly on your phone."
           files: release-apk/itas.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
