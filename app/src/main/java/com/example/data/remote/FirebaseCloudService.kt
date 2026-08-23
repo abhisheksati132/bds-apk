@@ -533,31 +533,31 @@ class FirebaseCloudService(
         if (cleanMe.isEmpty() || cleanPeer.isEmpty()) return
 
         try {
-            // Find messages sent by peer to me that are not yet marked READ
+            // Fetch unread messages from this peer directed to me
             val query = fs.collection("messages")
                 .whereEqualTo("senderHandle", cleanPeer)
                 .whereArrayContains("targetRecipients", cleanMe)
-                .whereNotEqualTo("status", "READ")
                 .limit(50)
                 .get()
                 .await()
 
-            if (!query.isEmpty) {
-                for (doc in query.documents) {
-                    try {
-                        doc.reference.update(
-                            mapOf(
-                                "status" to "READ",
-                                "readTimestamp" to FieldValue.serverTimestamp()
-                            )
-                        ).await()
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed updating read receipt for doc ${doc.id}: ${e.message}")
-                    }
+            val unreadDocs = query.documents.filter { it.getString("status") != "READ" }
+            if (unreadDocs.isNotEmpty()) {
+                val batch = fs.batch()
+                for (doc in unreadDocs) {
+                    batch.update(
+                        doc.reference,
+                        mapOf(
+                            "status" to "READ",
+                            "readTimestamp" to FieldValue.serverTimestamp()
+                        )
+                    )
                 }
+                batch.commit().await()
+                Log.d(TAG, "Successfully marked ${unreadDocs.size} messages as READ in cloud from $cleanPeer")
             }
         } catch (e: Exception) {
-            Log.d(TAG, "Mark read in cloud query: ${e.message}")
+            Log.d(TAG, "Mark read in cloud: ${e.message}")
         }
     }
 
@@ -796,16 +796,25 @@ class FirebaseCloudService(
         imageUri: Uri,
         conversationId: String
     ): String? {
+        val compressedFile = com.example.util.ImageCompressorHelper.compressImage(context, imageUri)
+        val fileToUpload = compressedFile ?: run {
+            val fallback = File(context.filesDir, "chat_img_${UUID.randomUUID()}.jpg")
+            context.contentResolver.openInputStream(imageUri)?.use { input ->
+                FileOutputStream(fallback).use { output -> input.copyTo(output) }
+            }
+            fallback
+        }
+
         val st = storage
-        if (st != null) {
+        if (st != null && fileToUpload.exists()) {
             try {
                 val imageRef = st.reference.child("chat_images/$conversationId/${UUID.randomUUID()}.jpg")
-                val stream = context.contentResolver.openInputStream(imageUri)
-                if (stream != null) {
+                fileToUpload.inputStream().use { stream ->
                     imageRef.putStream(stream).await()
-                    val downloadUrl = imageRef.downloadUrl.await().toString()
-                    return downloadUrl
                 }
+                val downloadUrl = imageRef.downloadUrl.await().toString()
+                try { compressedFile?.delete() } catch (_: Exception) {}
+                return downloadUrl
             } catch (e: Exception) {
                 Log.w(TAG, "Firebase Storage upload failed: ${e.message}. Saving local copy.")
             }
@@ -813,13 +822,7 @@ class FirebaseCloudService(
 
         // Offline / Local File fallback
         return try {
-            val localFile = File(context.filesDir, "chat_img_${UUID.randomUUID()}.jpg")
-            context.contentResolver.openInputStream(imageUri)?.use { input ->
-                FileOutputStream(localFile).use { output ->
-                    input.copyTo(output)
-                }
-            }
-            Uri.fromFile(localFile).toString()
+            Uri.fromFile(fileToUpload).toString()
         } catch (e: Exception) {
             Log.e(TAG, "Local image save fallback error: ${e.message}")
             imageUri.toString()

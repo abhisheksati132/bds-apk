@@ -19,6 +19,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,14 +39,18 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.IntOffset
@@ -73,7 +78,20 @@ enum class ChatWallpaper {
     MIDNIGHT
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+fun formatMessageDateHeader(timestamp: Long): String {
+    val now = Calendar.getInstance()
+    val msgTime = Calendar.getInstance().apply { timeInMillis = timestamp }
+    return when {
+        now.get(Calendar.YEAR) == msgTime.get(Calendar.YEAR) &&
+        now.get(Calendar.DAY_OF_YEAR) == msgTime.get(Calendar.DAY_OF_YEAR) -> "Today"
+        now.get(Calendar.YEAR) == msgTime.get(Calendar.YEAR) &&
+        now.get(Calendar.DAY_OF_YEAR) - msgTime.get(Calendar.DAY_OF_YEAR) == 1 -> "Yesterday"
+        now.get(Calendar.YEAR) == msgTime.get(Calendar.YEAR) -> SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(Date(timestamp))
+        else -> SimpleDateFormat("MMMM d, yyyy", Locale.getDefault()).format(Date(timestamp))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ConversationScreen(
     conversation: ConversationEntity,
@@ -101,6 +119,9 @@ fun ConversationScreen(
 ) {
     val MAX_CHAR_LIMIT = 500
     var inputText by remember { mutableStateOf("") }
+    var isSearchOpen by remember { mutableStateOf(false) }
+    var inChatSearchQuery by remember { mutableStateOf("") }
+    var currentSearchMatchIndex by remember { mutableIntStateOf(0) }
     var showMenu by remember { mutableStateOf(false) }
     var showTimerDialog by remember { mutableStateOf(false) }
     var showWallpaperDialog by remember { mutableStateOf(false) }
@@ -113,6 +134,13 @@ fun ConversationScreen(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
+
+    val matchedMessageIndices = remember(messages, inChatSearchQuery) {
+        if (inChatSearchQuery.isBlank()) emptyList<Int>()
+        else messages.mapIndexedNotNull { index, msg ->
+            if (msg.text.contains(inChatSearchQuery, ignoreCase = true)) index else null
+        }
+    }
 
     var currentDisappearingTimer by remember(conversation.disappearingTimerSeconds) {
         mutableStateOf(conversation.disappearingTimerSeconds)
@@ -183,118 +211,231 @@ fun ConversationScreen(
             .fillMaxSize()
             .testTag("screen_conversation"),
         topBar = {
-            TopAppBar(
-                modifier = Modifier.testTag("conversation_top_bar"),
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                title = {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.clickable { onOpenFingerprint() }
-                    ) {
-                        AvatarView(
-                            name = conversation.peerName,
-                            bgHex = conversation.avatarBgColorHex,
-                            textHex = conversation.avatarTextColorHex,
-                            size = 42.dp,
-                            imageUrl = conversation.avatarUrl,
-                            isOnline = conversation.isOnline
-                        )
-
-                        Column {
-                            Text(
-                                text = conversation.peerName,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1
-                            )
-                            Text(
-                                text = if (uiState.isPeerTyping) "typing..."
-                                else if (conversation.isGroup) "$memberCount members"
-                                else if (conversation.isOnline) "online"
-                                else "@${conversation.peerHandle}",
-                                fontSize = 12.sp,
-                                color = if (uiState.isPeerTyping || conversation.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            if (isSearchOpen) {
+                TopAppBar(
+                    modifier = Modifier.testTag("conversation_search_top_bar"),
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface
+                    ),
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            isSearchOpen = false
+                            inChatSearchQuery = ""
+                        }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Close search",
+                                tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier.testTag("btn_back_conversation")
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
-                actions = {
-                    IconButton(
-                        onClick = { showTimerDialog = true },
-                        modifier = Modifier.testTag("btn_disappearing_timer_top")
-                    ) {
-                        BadgedBox(
-                            badge = {
-                                if (currentDisappearingTimer > 0) {
-                                    Badge(containerColor = MaterialTheme.colorScheme.error) {
-                                        Text(
-                                            text = formatTimerShort(currentDisappearingTimer),
-                                            fontSize = 9.sp
-                                        )
+                    },
+                    title = {
+                        TextField(
+                            value = inChatSearchQuery,
+                            onValueChange = {
+                                inChatSearchQuery = it
+                                currentSearchMatchIndex = 0
+                                if (it.isNotBlank()) {
+                                    val matchIdx = messages.indexOfFirst { msg -> msg.text.contains(it, ignoreCase = true) }
+                                    if (matchIdx != -1) {
+                                        scope.launch { listState.animateScrollToItem(matchIdx) }
                                     }
                                 }
-                            }
-                        ) {
-                            Icon(
-                                imageVector = if (currentDisappearingTimer > 0) Icons.Default.Timer else Icons.Outlined.Timer,
-                                contentDescription = "Disappearing timer",
-                                tint = if (currentDisappearingTimer > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            placeholder = {
+                                Text("Search in chat...", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            },
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    },
+                    actions = {
+                        if (inChatSearchQuery.isNotBlank()) {
+                            Text(
+                                text = if (matchedMessageIndices.isEmpty()) "0/0" else "${currentSearchMatchIndex + 1}/${matchedMessageIndices.size}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 4.dp)
                             )
+
+                            IconButton(
+                                onClick = {
+                                    if (matchedMessageIndices.isNotEmpty()) {
+                                        currentSearchMatchIndex = (currentSearchMatchIndex - 1 + matchedMessageIndices.size) % matchedMessageIndices.size
+                                        scope.launch { listState.animateScrollToItem(matchedMessageIndices[currentSearchMatchIndex]) }
+                                    }
+                                },
+                                enabled = matchedMessageIndices.isNotEmpty()
+                            ) {
+                                Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Previous match")
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    if (matchedMessageIndices.isNotEmpty()) {
+                                        currentSearchMatchIndex = (currentSearchMatchIndex + 1) % matchedMessageIndices.size
+                                        scope.launch { listState.animateScrollToItem(matchedMessageIndices[currentSearchMatchIndex]) }
+                                    }
+                                },
+                                enabled = matchedMessageIndices.isNotEmpty()
+                            ) {
+                                Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Next match")
+                            }
+                        }
+
+                        IconButton(onClick = {
+                            if (inChatSearchQuery.isNotBlank()) {
+                                inChatSearchQuery = ""
+                            } else {
+                                isSearchOpen = false
+                            }
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear search", tint = MaterialTheme.colorScheme.onSurface)
                         }
                     }
+                )
+            } else {
+                TopAppBar(
+                    modifier = Modifier.testTag("conversation_top_bar"),
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface
+                    ),
+                    title = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.clickable { onOpenFingerprint() }
+                        ) {
+                            AvatarView(
+                                name = conversation.peerName,
+                                bgHex = conversation.avatarBgColorHex,
+                                textHex = conversation.avatarTextColorHex,
+                                size = 42.dp,
+                                imageUrl = conversation.avatarUrl,
+                                isOnline = conversation.isOnline
+                            )
 
-                    IconButton(
-                        onClick = { onStartCall(conversation, false) },
-                        modifier = Modifier.testTag("btn_voice_call")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Call,
-                            contentDescription = "Voice Call",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    IconButton(
-                        onClick = { onStartCall(conversation, true) },
-                        modifier = Modifier.testTag("btn_video_call")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Videocam,
-                            contentDescription = "Video Call",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    Box {
-                        IconButton(onClick = { showMenu = true }) {
+                            Column {
+                                Text(
+                                    text = conversation.peerName,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = if (uiState.isPeerTyping) "typing..."
+                                    else if (conversation.isGroup) "$memberCount members"
+                                    else if (conversation.isOnline) "online"
+                                    else "@${conversation.peerHandle}",
+                                    fontSize = 12.sp,
+                                    color = if (uiState.isPeerTyping || conversation.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(
+                            onClick = onBack,
+                            modifier = Modifier.testTag("btn_back_conversation")
+                        ) {
                             Icon(
-                                imageVector = Icons.Default.MoreVert,
-                                contentDescription = "More options",
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = { isSearchOpen = true },
+                            modifier = Modifier.testTag("btn_search_messages_in_chat")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search messages",
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
 
-                        DropdownMenu(
-                            expanded = showMenu,
-                            onDismissRequest = { showMenu = false }
+                        IconButton(
+                            onClick = { showTimerDialog = true },
+                            modifier = Modifier.testTag("btn_disappearing_timer_top")
                         ) {
+                            BadgedBox(
+                                badge = {
+                                    if (currentDisappearingTimer > 0) {
+                                        Badge(containerColor = MaterialTheme.colorScheme.error) {
+                                            Text(
+                                                text = formatTimerShort(currentDisappearingTimer),
+                                                fontSize = 9.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = if (currentDisappearingTimer > 0) Icons.Default.Timer else Icons.Outlined.Timer,
+                                    contentDescription = "Disappearing timer",
+                                    tint = if (currentDisappearingTimer > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = { onStartCall(conversation, false) },
+                            modifier = Modifier.testTag("btn_voice_call")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Call,
+                                contentDescription = "Voice Call",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { onStartCall(conversation, true) },
+                            modifier = Modifier.testTag("btn_video_call")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Videocam,
+                                contentDescription = "Video Call",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        Box {
+                            IconButton(onClick = { showMenu = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreVert,
+                                    contentDescription = "More options",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Search Messages") },
+                                    onClick = {
+                                        showMenu = false
+                                        isSearchOpen = true
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Search, contentDescription = null)
+                                    }
+                                )
                             DropdownMenuItem(
                                 text = { Text("Encryption Fingerprint") },
                                 onClick = {
@@ -368,7 +509,8 @@ fun ConversationScreen(
                 }
             )
         }
-    ) { paddingValues ->
+    }
+) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -422,25 +564,77 @@ fun ConversationScreen(
                         }
                     }
 
-                    items(
-                        items = messages,
-                        key = { it.id }
-                    ) { message ->
-                        Box(modifier = Modifier.animateItem()) {
-                            SwipeableMessageBubble(
-                                message = message,
-                                uiState = uiState,
-                                onReply = { onSetReplyTo(message) },
-                                onDoubleTapHeart = {
-                                    val current = message.reaction
-                                    val newReaction = if (current == "❤️") null else "❤️"
-                                    onReactToMessage(message, newReaction)
-                                },
-                                onInspectCipher = { selectedMessageForCipher = message },
-                                onLongClickReaction = { selectedMessageForReaction = message },
-                                onImageClick = { previewImageUrl = it },
-                                onTogglePlayVoiceNote = onTogglePlayVoiceNote
-                            )
+                    val groupedMessages = messages.groupBy { formatMessageDateHeader(it.timestamp) }
+
+                    groupedMessages.forEach { (dateHeader, dateMessages) ->
+                        stickyHeader(key = "header_$dateHeader") {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                                    shadowElevation = 1.dp
+                                ) {
+                                    Text(
+                                        text = dateHeader,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        itemsIndexed(
+                            items = dateMessages,
+                            key = { _, msg -> msg.id }
+                        ) { index, message ->
+                            val isPrevSame = index > 0 && dateMessages[index - 1].isMe == message.isMe && (message.timestamp - dateMessages[index - 1].timestamp) < 180000
+                            val isNextSame = index < dateMessages.size - 1 && dateMessages[index + 1].isMe == message.isMe && (dateMessages[index + 1].timestamp - message.timestamp) < 180000
+
+                            val bubbleShape: Shape = when {
+                                message.isMe -> when {
+                                    !isPrevSame && isNextSame -> RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 4.dp)
+                                    isPrevSame && isNextSame -> RoundedCornerShape(topStart = 18.dp, topEnd = 4.dp, bottomStart = 18.dp, bottomEnd = 4.dp)
+                                    isPrevSame && !isNextSame -> RoundedCornerShape(topStart = 18.dp, topEnd = 4.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
+                                    else -> RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 4.dp)
+                                }
+                                else -> when {
+                                    !isPrevSame && isNextSame -> RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 18.dp)
+                                    isPrevSame && isNextSame -> RoundedCornerShape(topStart = 4.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 18.dp)
+                                    isPrevSame && !isNextSame -> RoundedCornerShape(topStart = 4.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
+                                    else -> RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 18.dp)
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .animateItem()
+                                    .padding(vertical = if (isNextSame) 1.dp else 4.dp)
+                            ) {
+                                SwipeableMessageBubble(
+                                    message = message,
+                                    uiState = uiState,
+                                    bubbleShape = bubbleShape,
+                                    highlightQuery = if (isSearchOpen) inChatSearchQuery else "",
+                                    onReply = { onSetReplyTo(message) },
+                                    onDoubleTapHeart = {
+                                        val current = message.reaction
+                                        val newReaction = if (current == "❤️") null else "❤️"
+                                        onReactToMessage(message, newReaction)
+                                    },
+                                    onInspectCipher = { selectedMessageForCipher = message },
+                                    onLongClickReaction = { selectedMessageForReaction = message },
+                                    onImageClick = { previewImageUrl = it },
+                                    onTogglePlayVoiceNote = onTogglePlayVoiceNote
+                                )
+                            }
                         }
                     }
 
@@ -1167,6 +1361,8 @@ fun LiveVoiceWaveform(
 fun SwipeableMessageBubble(
     message: MessageEntity,
     uiState: UiState,
+    bubbleShape: Shape,
+    highlightQuery: String = "",
     onReply: () -> Unit,
     onDoubleTapHeart: () -> Unit,
     onInspectCipher: () -> Unit,
@@ -1176,7 +1372,13 @@ fun SwipeableMessageBubble(
 ) {
     var offsetX by remember { mutableStateOf(0f) }
     var showHeartPop by remember { mutableStateOf(false) }
-    val animatedOffsetX by animateFloatAsState(targetValue = offsetX, label = "swipeReply")
+    var hasHapticFired by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
+    val animatedOffsetX by animateFloatAsState(
+        targetValue = offsetX,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "swipeReply"
+    )
 
     val heartScale by animateFloatAsState(
         targetValue = if (showHeartPop) 1.2f else 0f,
@@ -1197,13 +1399,22 @@ fun SwipeableMessageBubble(
             .pointerInput(Unit) {
                 detectHorizontalDragGestures(
                     onDragEnd = {
-                        if (offsetX > 80f || offsetX < -80f) {
+                        if (offsetX > 70f || offsetX < -70f) {
                             onReply()
                         }
                         offsetX = 0f
+                        hasHapticFired = false
+                    },
+                    onDragCancel = {
+                        offsetX = 0f
+                        hasHapticFired = false
                     },
                     onHorizontalDrag = { _, dragAmount ->
                         offsetX = (offsetX + dragAmount * 0.6f).coerceIn(-120f, 120f)
+                        if ((offsetX > 70f || offsetX < -70f) && !hasHapticFired) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            hasHapticFired = true
+                        }
                     }
                 )
             }
@@ -1216,12 +1427,24 @@ fun SwipeableMessageBubble(
                     .padding(horizontal = 16.dp),
                 contentAlignment = if (animatedOffsetX > 0) Alignment.CenterStart else Alignment.CenterEnd
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Reply,
-                    contentDescription = "Reply",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
+                val iconAlpha = (kotlin.math.abs(animatedOffsetX) / 70f).coerceIn(0f, 1f)
+                val iconScale = (kotlin.math.abs(animatedOffsetX) / 70f).coerceIn(0.5f, 1.2f)
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = iconAlpha),
+                    modifier = Modifier
+                        .size(36.dp)
+                        .scale(iconScale)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Reply,
+                            contentDescription = "Reply",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             }
         }
 
@@ -1234,6 +1457,8 @@ fun SwipeableMessageBubble(
             MessageBubble(
                 message = message,
                 uiState = uiState,
+                bubbleShape = bubbleShape,
+                highlightQuery = highlightQuery,
                 onReply = onReply,
                 onInspectCipher = onInspectCipher,
                 onLongClickReaction = onLongClickReaction,
@@ -1264,6 +1489,8 @@ fun SwipeableMessageBubble(
 fun MessageBubble(
     message: MessageEntity,
     uiState: UiState,
+    bubbleShape: Shape = RoundedCornerShape(18.dp),
+    highlightQuery: String = "",
     onReply: () -> Unit,
     onInspectCipher: () -> Unit,
     onLongClickReaction: () -> Unit,
@@ -1275,13 +1502,6 @@ fun MessageBubble(
     val bubbleColor = if (isMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
     val textColor = if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
     val alignment = if (isMe) Alignment.End else Alignment.Start
-
-    // Asymmetrical tail shape (Option 1)
-    val bubbleShape = if (isMe) {
-        RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 20.dp, bottomEnd = 4.dp)
-    } else {
-        RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 4.dp, bottomEnd = 20.dp)
-    }
 
     var remainingSeconds by remember(message.expiresAtTimestamp) {
         mutableStateOf(
@@ -1434,12 +1654,45 @@ fun MessageBubble(
                         )
                     }
                 } else if (message.type != MessageType.IMAGE) {
-                    Text(
-                        text = message.text,
-                        fontSize = 14.sp,
-                        color = textColor,
-                        lineHeight = 20.sp
-                    )
+                    if (highlightQuery.isNotBlank() && message.text.contains(highlightQuery, ignoreCase = true)) {
+                        val annotatedText = buildAnnotatedString {
+                            val text = message.text
+                            val lowerText = text.lowercase()
+                            val lowerQuery = highlightQuery.lowercase()
+                            var startIndex = 0
+                            while (startIndex < text.length) {
+                                val matchIndex = lowerText.indexOf(lowerQuery, startIndex)
+                                if (matchIndex == -1) {
+                                    append(text.substring(startIndex))
+                                    break
+                                }
+                                append(text.substring(startIndex, matchIndex))
+                                withStyle(
+                                    style = SpanStyle(
+                                        background = if (isMe) Color(0xFFFFD54F) else MaterialTheme.colorScheme.primaryContainer,
+                                        color = Color.Black,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                ) {
+                                    append(text.substring(matchIndex, matchIndex + highlightQuery.length))
+                                }
+                                startIndex = matchIndex + highlightQuery.length
+                            }
+                        }
+                        Text(
+                            text = annotatedText,
+                            fontSize = 14.sp,
+                            color = textColor,
+                            lineHeight = 20.sp
+                        )
+                    } else {
+                        Text(
+                            text = message.text,
+                            fontSize = 14.sp,
+                            color = textColor,
+                            lineHeight = 20.sp
+                        )
+                    }
                 }
 
                 // Metadata: Time, Disappearing & Read status
