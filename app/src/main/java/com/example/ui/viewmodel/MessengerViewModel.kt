@@ -15,6 +15,9 @@ import com.example.data.remote.CloudUser
 import com.example.data.remote.FirebaseAuthService
 import com.example.data.remote.FirebaseCloudService
 import com.example.data.repository.MessengerRepository
+import com.example.util.AudioPlaybackState
+import com.example.util.AudioPlayerHelper
+import com.example.util.AudioRecorderHelper
 import com.example.util.HapticHelper
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -51,6 +54,8 @@ data class UiState(
     val replyingToMessage: MessageEntity? = null,
     val isRecordingVoice: Boolean = false,
     val recordingSeconds: Int = 0,
+    val recordingAmplitude: Int = 0,
+    val audioPlaybackState: AudioPlaybackState = AudioPlaybackState(),
     val isPeerTyping: Boolean = false,
     val activeCall: ConversationEntity? = null,
     val isVideoCall: Boolean = false,
@@ -87,6 +92,8 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val prefs = application.getSharedPreferences("vault_messenger_prefs", Context.MODE_PRIVATE)
     private val securityPrefs = SecurityPreferencesRepository(application)
+    private val audioRecorderHelper = AudioRecorderHelper(application)
+    private val audioPlayerHelper = AudioPlayerHelper(application)
     private val repository: MessengerRepository
     private val cloudService: FirebaseCloudService
     private val authService: FirebaseAuthService
@@ -218,6 +225,13 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
                 if (users.isNotEmpty()) {
                     _uiState.update { it.copy(cloudUsers = users) }
                 }
+            }
+        }
+
+        // Observe Audio Playback State
+        viewModelScope.launch {
+            audioPlayerHelper.playbackState.collect { playState ->
+                _uiState.update { it.copy(audioPlaybackState = playState) }
             }
         }
 
@@ -710,33 +724,67 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun startVoiceRecording() {
-        _uiState.update { it.copy(isRecordingVoice = true, recordingSeconds = 0) }
+        val started = audioRecorderHelper.startRecording()
+        if (!started) return
+
+        _uiState.update { it.copy(isRecordingVoice = true, recordingSeconds = 0, recordingAmplitude = 0) }
         voiceRecordJob?.cancel()
         voiceRecordJob = viewModelScope.launch {
-            while (true) {
-                delay(1000)
-                _uiState.update { it.copy(recordingSeconds = it.recordingSeconds + 1) }
+            var count = 0
+            while (isActive) {
+                delay(100)
+                count++
+                val amp = audioRecorderHelper.getMaxAmplitude()
+                _uiState.update {
+                    it.copy(
+                        recordingSeconds = count / 10,
+                        recordingAmplitude = amp
+                    )
+                }
             }
         }
     }
 
     fun cancelVoiceRecording() {
         voiceRecordJob?.cancel()
-        _uiState.update { it.copy(isRecordingVoice = false, recordingSeconds = 0) }
+        audioRecorderHelper.cancelRecording()
+        _uiState.update { it.copy(isRecordingVoice = false, recordingSeconds = 0, recordingAmplitude = 0) }
     }
 
     fun finishVoiceRecording(conversationId: Long, isDisappearing: Boolean, timer: Long) {
         voiceRecordJob?.cancel()
         val duration = _uiState.value.recordingSeconds.coerceAtLeast(1)
-        _uiState.update { it.copy(isRecordingVoice = false, recordingSeconds = 0) }
-        sendMessage(
-            conversationId = conversationId,
-            text = "Voice message",
-            isDisappearing = isDisappearing,
-            disappearingTimerSeconds = timer,
-            type = MessageType.VOICE,
-            voiceDurationSeconds = duration
-        )
+        val audioFile = audioRecorderHelper.stopRecording()
+        _uiState.update { it.copy(isRecordingVoice = false, recordingSeconds = 0, recordingAmplitude = 0) }
+
+        if (audioFile != null && audioFile.exists() && audioFile.length() > 0) {
+            HapticHelper.playMessageSentHaptic(getApplication())
+            val currentHandle = _uiState.value.myHandle
+            viewModelScope.launch {
+                repository.sendVoiceNoteMessage(
+                    conversationId = conversationId,
+                    audioFile = audioFile,
+                    durationSeconds = duration,
+                    isDisappearing = isDisappearing || timer > 0,
+                    disappearingTimerSeconds = timer,
+                    myHandle = currentHandle
+                )
+            }
+        }
+    }
+
+    fun togglePlayVoiceNote(mediaUrl: String?) {
+        if (mediaUrl.isNullOrBlank()) return
+        val state = _uiState.value.audioPlaybackState
+        if (state.activeMediaUrl == mediaUrl && state.isPlaying) {
+            audioPlayerHelper.pauseAudio()
+        } else {
+            audioPlayerHelper.playAudio(mediaUrl)
+        }
+    }
+
+    fun seekVoiceNote(positionMs: Int) {
+        audioPlayerHelper.seekTo(positionMs)
     }
 
     fun startCall(peer: ConversationEntity, isVideo: Boolean) {
@@ -860,8 +908,19 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun postStatus(caption: String) {
         if (caption.isBlank()) return
+        val handle = _uiState.value.myHandle.ifBlank { "me.private" }
+        val name = _uiState.value.myDisplayName.ifBlank { "@$handle" }
+        val bg = _uiState.value.myAvatarBgHex
+        val textHex = _uiState.value.myAvatarTextHex
+
         viewModelScope.launch {
-            repository.addStatus(caption)
+            repository.addStatus(
+                caption = caption,
+                authorHandle = handle,
+                authorName = name,
+                avatarBgHex = bg,
+                avatarTextHex = textHex
+            )
         }
     }
 
@@ -1079,6 +1138,8 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
     override fun onCleared() {
         super.onCleared()
         cloudService.stopListener()
+        audioPlayerHelper.release()
+        audioRecorderHelper.cancelRecording()
         callTimerJob?.cancel()
         voiceRecordJob?.cancel()
         cleanupTimerJob?.cancel()

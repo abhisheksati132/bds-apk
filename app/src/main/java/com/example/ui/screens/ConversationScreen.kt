@@ -89,6 +89,7 @@ fun ConversationScreen(
     onTypingChanged: (Boolean) -> Unit = {},
     onForwardMessage: (MessageEntity) -> Unit = {},
     onBlockUser: (String) -> Unit = {},
+    onTogglePlayVoiceNote: (String?) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val MAX_CHAR_LIMIT = 500
@@ -1210,35 +1211,62 @@ fun MessageBubble(
 
                 // Voice Message View
                 if (message.type == MessageType.VOICE) {
+                    val isCurrentPlaying = uiState.audioPlaybackState.isPlaying && 
+                        (uiState.audioPlaybackState.activeMediaUrl == message.mediaUrl || 
+                         (message.mediaUrl.isNullOrEmpty() && uiState.audioPlaybackState.activeMediaUrl == message.text))
+                    val progressFraction = if (isCurrentPlaying && uiState.audioPlaybackState.durationMs > 0) {
+                        (uiState.audioPlaybackState.currentPositionMs.toFloat() / uiState.audioPlaybackState.durationMs.toFloat()).coerceIn(0f, 1f)
+                    } else 0f
+
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.padding(vertical = 4.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "Play voice",
-                            tint = textColor,
-                            modifier = Modifier.size(28.dp)
-                        )
+                        IconButton(
+                            onClick = { onTogglePlayVoiceNote(message.mediaUrl ?: message.text) },
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(textColor.copy(alpha = 0.15f))
+                        ) {
+                            Icon(
+                                imageVector = if (isCurrentPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = "Play voice note",
+                                tint = textColor,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(2.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.clickable { onTogglePlayVoiceNote(message.mediaUrl ?: message.text) }
                         ) {
-                            listOf(12, 20, 15, 24, 18, 10, 22, 16, 8, 14, 20, 12).forEach { height ->
+                            val barHeights = listOf(10, 18, 14, 24, 18, 12, 22, 16, 8, 14, 20, 12, 16, 22, 10)
+                            barHeights.forEachIndexed { index, height ->
+                                val barFraction = (index + 1).toFloat() / barHeights.size.toFloat()
+                                val isPlayed = progressFraction >= barFraction
                                 Box(
                                     modifier = Modifier
                                         .width(3.dp)
                                         .height(height.dp)
                                         .clip(RoundedCornerShape(2.dp))
-                                        .background(textColor.copy(alpha = 0.7f))
+                                        .background(
+                                            if (isPlayed) textColor else textColor.copy(alpha = 0.4f)
+                                        )
                                 )
                             }
                         }
                         Text(
-                            text = "0:${String.format(Locale.getDefault(), "%02d", message.voiceDurationSeconds.coerceAtLeast(1))}",
+                            text = if (isCurrentPlaying && uiState.audioPlaybackState.currentPositionMs > 0) {
+                                val sec = (uiState.audioPlaybackState.currentPositionMs / 1000)
+                                "0:${String.format(Locale.getDefault(), "%02d", sec)}"
+                            } else {
+                                "0:${String.format(Locale.getDefault(), "%02d", message.voiceDurationSeconds.coerceAtLeast(1))}"
+                            },
                             fontSize = 11.sp,
-                            color = textColor
+                            color = textColor,
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 } else if (message.type != MessageType.IMAGE) {

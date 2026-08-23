@@ -895,6 +895,109 @@ class FirebaseCloudService(
         }
     }
 
+    /**
+     * Upload real recorded voice note .m4a audio file to Firebase Storage
+     */
+    suspend fun uploadVoiceNote(
+        file: File,
+        conversationKey: String
+    ): String? {
+        val st = storage
+        if (st != null && file.exists()) {
+            try {
+                val voiceRef = st.reference.child("voice_notes/${conversationKey}_${System.currentTimeMillis()}.m4a")
+                voiceRef.putFile(Uri.fromFile(file)).await()
+                return voiceRef.downloadUrl.await().toString()
+            } catch (e: Exception) {
+                Log.w(TAG, "Firebase Storage voice note upload error: ${e.message}. Using local file URI.")
+            }
+        }
+        return if (file.exists()) Uri.fromFile(file).toString() else null
+    }
+
+    /**
+     * Post 24-Hour Ephemeral Status / Story to Firestore
+     */
+    suspend fun postStatusToCloud(
+        caption: String,
+        authorHandle: String,
+        authorName: String,
+        avatarBgHex: String = "#DDE1FF",
+        avatarTextHex: String = "#001453",
+        mediaUrl: String? = null
+    ): Boolean {
+        val fs = firestore ?: return false
+        val cleanHandle = authorHandle.lowercase().replace("@", "").trim()
+        val now = System.currentTimeMillis()
+        val expiresAt = now + (24 * 60 * 60 * 1000L) // 24 Hours TTL
+
+        return try {
+            val statusMap = hashMapOf(
+                "authorHandle" to cleanHandle,
+                "authorName" to authorName,
+                "avatarBgHex" to avatarBgHex,
+                "avatarTextHex" to avatarTextHex,
+                "caption" to caption,
+                "mediaUrl" to (mediaUrl ?: ""),
+                "timestamp" to now,
+                "expiresAt" to expiresAt
+            )
+            fs.collection("statuses").add(statusMap).await()
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to post cloud status: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Observe Active 24-Hour Stories across all users from Firestore
+     */
+    fun observeCloudStatuses(): Flow<List<StatusEntity>> = callbackFlow {
+        val fs = firestore
+        if (fs == null) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+
+        val cutoff = System.currentTimeMillis() - (24 * 60 * 60 * 1000L)
+        val listener = fs.collection("statuses")
+            .whereGreaterThanOrEqualTo("timestamp", cutoff)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.w(TAG, "Cloud statuses listen error: ${error.message}")
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    val list = snapshot.documents.mapNotNull { doc ->
+                        val handle = doc.getString("authorHandle") ?: return@mapNotNull null
+                        val name = doc.getString("authorName") ?: "@$handle"
+                        val caption = doc.getString("caption") ?: ""
+                        val bg = doc.getString("avatarBgHex") ?: "#DDE1FF"
+                        val textHex = doc.getString("avatarTextHex") ?: "#001453"
+                        val timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
+                        val media = doc.getString("mediaUrl")
+
+                        StatusEntity(
+                            id = doc.id.hashCode().toLong(),
+                            authorName = name,
+                            authorHandle = handle,
+                            avatarBgHex = bg,
+                            avatarTextHex = textHex,
+                            caption = caption,
+                            timestamp = timestamp,
+                            isMe = (handle == currentUserHandle),
+                            isViewed = false
+                        )
+                    }.sortedByDescending { it.timestamp }
+                    trySend(list)
+                }
+            }
+
+        awaitClose { listener.remove() }
+    }
+
     // ==========================================
     // DISAPPEARING MESSAGES PURGE
     // ==========================================

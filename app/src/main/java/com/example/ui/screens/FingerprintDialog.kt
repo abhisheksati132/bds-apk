@@ -67,20 +67,25 @@ fun FingerprintDialog(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "60-DIGIT SAFETY NUMBER",
+                            text = "CRYPTOGRAPHIC SAFETY NUMBER",
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary,
                             letterSpacing = 1.sp
                         )
 
+                        val safetyNum = com.example.data.crypto.CryptoHelper.generateSafetyNumber(
+                            myPublicKey,
+                            conversation.peerHandle
+                        )
+
                         Text(
-                            text = "${conversation.keyFingerprint}  42:89:1B:00\n67:A3:CC:90  12:34:56:78\n90:AB:CD:EF  11:22:33:44",
+                            text = "${conversation.keyFingerprint}\n\n$safetyNum",
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp,
+                            fontSize = 15.sp,
                             textAlign = TextAlign.Center,
-                            lineHeight = 20.sp,
+                            lineHeight = 22.sp,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }

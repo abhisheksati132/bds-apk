@@ -20,7 +20,13 @@ class MessengerRepository(
 
     val activeConversations: Flow<List<ConversationEntity>> = dao.getActiveConversations()
     val allContacts: Flow<List<ContactEntity>> = dao.getAllContacts()
-    val allStatuses: Flow<List<StatusEntity>> = dao.getAllStatuses()
+    val allStatuses: Flow<List<StatusEntity>> = if (cloudService != null) {
+        combine(dao.getAllStatuses(), cloudService.observeCloudStatuses()) { local, cloud ->
+            (local + cloud).distinctBy { "${it.authorHandle}_${it.timestamp}" }.sortedByDescending { it.timestamp }
+        }
+    } else {
+        dao.getAllStatuses()
+    }
     val allCalls: Flow<List<CallEntity>> = dao.getAllCalls()
 
     val presenceMap: Flow<Map<String, Boolean>> = cloudService?.presenceMap ?: flowOf(emptyMap())
@@ -148,6 +154,31 @@ class MessengerRepository(
             disappearingTimerSeconds = disappearingTimerSeconds,
             type = MessageType.IMAGE,
             mediaUrl = mediaUrl,
+            myHandle = myHandle
+        )
+    }
+
+    suspend fun sendVoiceNoteMessage(
+        conversationId: Long,
+        audioFile: java.io.File,
+        durationSeconds: Int,
+        isDisappearing: Boolean = false,
+        disappearingTimerSeconds: Long = 0,
+        myHandle: String = "me"
+    ) {
+        val conv = dao.getConversationById(conversationId).firstOrNull()
+        val convKey = conv?.peerHandle ?: conversationId.toString()
+
+        val mediaUrl = cloudService?.uploadVoiceNote(audioFile, convKey) ?: android.net.Uri.fromFile(audioFile).toString()
+
+        sendMessage(
+            conversationId = conversationId,
+            text = "🎤 Voice note (${durationSeconds}s)",
+            isDisappearing = isDisappearing,
+            disappearingTimerSeconds = disappearingTimerSeconds,
+            type = MessageType.VOICE,
+            mediaUrl = mediaUrl,
+            voiceDurationSeconds = durationSeconds,
             myHandle = myHandle
         )
     }
@@ -365,18 +396,31 @@ class MessengerRepository(
         dao.insertContact(contact)
     }
 
-    suspend fun addStatus(caption: String) {
+    suspend fun addStatus(
+        caption: String,
+        authorHandle: String = "me.private",
+        authorName: String = "You",
+        avatarBgHex: String = "#DDE1FF",
+        avatarTextHex: String = "#001453"
+    ) {
         dao.insertStatus(
             StatusEntity(
-                authorName = "You",
-                authorHandle = "me.private",
-                avatarBgHex = "#DDE1FF",
-                avatarTextHex = "#001453",
+                authorName = authorName,
+                authorHandle = authorHandle,
+                avatarBgHex = avatarBgHex,
+                avatarTextHex = avatarTextHex,
                 caption = caption,
                 timestamp = System.currentTimeMillis(),
                 isMe = true,
                 isViewed = true
             )
+        )
+        cloudService?.postStatusToCloud(
+            caption = caption,
+            authorHandle = authorHandle,
+            authorName = authorName,
+            avatarBgHex = avatarBgHex,
+            avatarTextHex = avatarTextHex
         )
     }
 

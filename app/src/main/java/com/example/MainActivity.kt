@@ -189,7 +189,8 @@ class MainActivity : ComponentActivity() {
                             onReactToMessage = { msg, reaction -> viewModel.reactToMessage(msg, reaction) },
                             onTypingChanged = { isTyping -> viewModel.sendTyping(currentConv!!.id, isTyping) },
                             onForwardMessage = { msg -> viewModel.setForwardDialogOpen(true, msg) },
-                            onBlockUser = { handle -> viewModel.blockUser(handle) }
+                            onBlockUser = { handle -> viewModel.blockUser(handle) },
+                            onTogglePlayVoiceNote = { url -> viewModel.togglePlayVoiceNote(url) }
                         )
 
                         // Safety number fingerprint dialog

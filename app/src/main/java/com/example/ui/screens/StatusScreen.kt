@@ -31,6 +31,7 @@ fun StatusScreen(
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
     var newStatusText by remember { mutableStateOf("") }
+    var selectedStatusForViewing by remember { mutableStateOf<StatusEntity?>(null) }
 
     Box(
         modifier = modifier
@@ -172,6 +173,7 @@ fun StatusScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clickable { selectedStatusForViewing = status }
                                 .padding(horizontal = 20.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
@@ -203,10 +205,133 @@ fun StatusScreen(
                                 Text(
                                     text = status.caption,
                                     style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1
                                 )
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    // Full-Screen Story Viewer Dialog
+    if (selectedStatusForViewing != null) {
+        val currentViewing = selectedStatusForViewing!!
+        var progress by remember(currentViewing.id) { mutableFloatStateOf(0f) }
+
+        LaunchedEffect(currentViewing.id) {
+            val totalSteps = 50
+            for (i in 1..totalSteps) {
+                kotlinx.coroutines.delay(100)
+                progress = i.toFloat() / totalSteps.toFloat()
+            }
+            selectedStatusForViewing = null
+        }
+
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { selectedStatusForViewing = null },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(androidx.compose.ui.graphics.Color(0xFF0F172A))
+                    .clickable { selectedStatusForViewing = null }
+                    .padding(24.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Top Progress Bar & User Info
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp)),
+                            color = androidx.compose.ui.graphics.Color.White,
+                            trackColor = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.3f)
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                AvatarView(
+                                    name = currentViewing.authorName,
+                                    bgHex = currentViewing.avatarBgHex,
+                                    textHex = currentViewing.avatarTextHex,
+                                    size = 40.dp
+                                )
+                                Column {
+                                    Text(
+                                        text = currentViewing.authorName,
+                                        color = androidx.compose.ui.graphics.Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp
+                                    )
+                                    Text(
+                                        text = formatChatTime(currentViewing.timestamp),
+                                        color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.7f),
+                                        fontSize = 12.sp
+                                    )
+                                }
+                            }
+
+                            IconButton(onClick = { selectedStatusForViewing = null }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Close story",
+                                    tint = androidx.compose.ui.graphics.Color.White
+                                )
+                            }
+                        }
+                    }
+
+                    // Centered Story Text Content
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = currentViewing.caption,
+                            style = MaterialTheme.typography.headlineMedium,
+                            color = androidx.compose.ui.graphics.Color.White,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+                    }
+
+                    // Bottom 24h Encrypted Badge
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.6f),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "End-to-End Encrypted • 24h Ephemeral",
+                            color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.6f),
+                            fontSize = 12.sp
+                        )
                     }
                 }
             }
