@@ -31,6 +31,7 @@ fun VaultSecurityScreen(
     onPanicWipeData: () -> Unit,
     onUpdateHandle: (String) -> Unit = {},
     onRotateKeys: () -> Unit = {},
+    onOpenAuthDialog: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showPinDialog by remember { mutableStateOf(false) }
@@ -69,6 +70,60 @@ fun VaultSecurityScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+
+            // Firebase Authentication Card
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(20.dp),
+                color = if (uiState.authUser != null) {
+                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                } else {
+                    MaterialTheme.colorScheme.surfaceVariant
+                }
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Icon(
+                        imageVector = if (uiState.authUser != null) Icons.Default.AccountCircle else Icons.Default.LockPerson,
+                        contentDescription = "Firebase Auth",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (uiState.authUser != null) "Firebase Identity" else "Firebase Authentication",
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (uiState.authUser != null) {
+                                "Signed in as ${uiState.authUser.email ?: uiState.authUser.displayName ?: uiState.authUser.uid.take(8)}"
+                            } else {
+                                "Sign in with Google or Email for multi-device live sync & peer discovery."
+                            },
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    FilledTonalButton(
+                        onClick = onOpenAuthDialog,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.testTag("btn_vault_auth")
+                    ) {
+                        Text(
+                            text = if (uiState.authUser != null) "Manage" else "Sign In",
+                            fontSize = 12.sp
+                        )
+                    }
+                }
             }
 
             // Cloud Relay Status Card

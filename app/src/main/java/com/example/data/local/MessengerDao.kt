@@ -90,4 +90,7 @@ interface MessengerDao {
 
     @Query("DELETE FROM statuses")
     suspend fun wipeStatuses()
+
+    @Query("DELETE FROM contacts")
+    suspend fun wipeContacts()
 }

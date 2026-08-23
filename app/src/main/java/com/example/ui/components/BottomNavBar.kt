@@ -9,10 +9,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Update
 import androidx.compose.material.icons.outlined.Chat
 import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Phone
 import androidx.compose.material.icons.outlined.Update
 import androidx.compose.material3.*
@@ -53,6 +55,13 @@ fun CleanBottomNavBar(
             testTag = "nav_chats_tab"
         ),
         NavItem(
+            tab = MainTab.CONTACTS,
+            label = "Contacts",
+            selectedIcon = Icons.Filled.People,
+            unselectedIcon = Icons.Outlined.People,
+            testTag = "nav_contacts_tab"
+        ),
+        NavItem(
             tab = MainTab.STATUS,
             label = "Status",
             selectedIcon = Icons.Filled.Update,
@@ -78,70 +87,68 @@ fun CleanBottomNavBar(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .background(MaterialTheme.colorScheme.surface)
+            .windowInsetsPadding(WindowInsets.navigationBars)
     ) {
         HorizontalDivider(
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-            thickness = 0.8.dp
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+            thickness = 0.5.dp
         )
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .height(68.dp)
-                .padding(horizontal = 8.dp),
+                .height(64.dp)
+                .padding(horizontal = 4.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
             navItems.forEach { item ->
-                val isSelected = item.tab == activeTab
-                val pillBgColor by animateColorAsState(
-                    targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                    label = "pill_bg"
+                val isSelected = activeTab == item.tab
+                val animatedColor by animateColorAsState(
+                    targetValue = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    label = "navColor"
                 )
-                val iconColor by animateColorAsState(
-                    targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                    label = "icon_color"
-                )
-                val textColor = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
 
                 Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
                     modifier = Modifier
-                        .testTag(item.testTag)
                         .weight(1f)
-                        .clip(RoundedCornerShape(16.dp))
+                        .fillMaxHeight()
+                        .clip(RoundedCornerShape(12.dp))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
-                            indication = ripple()
-                        ) { onTabSelected(item.tab) }
-                        .padding(vertical = 4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                            indication = ripple(bounded = false, radius = 24.dp)
+                        ) {
+                            onTabSelected(item.tab)
+                        }
+                        .testTag(item.testTag)
                 ) {
                     Box(
                         modifier = Modifier
-                            .width(56.dp)
-                            .height(30.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(pillBgColor),
+                            .height(28.dp)
+                            .width(52.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(
+                                if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                                else Color.Transparent
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = if (isSelected) item.selectedIcon else item.unselectedIcon,
                             contentDescription = item.label,
-                            tint = iconColor,
+                            tint = animatedColor,
                             modifier = Modifier.size(20.dp)
                         )
                     }
-
-                    Spacer(modifier = Modifier.height(2.dp))
 
                     Text(
                         text = item.label,
                         fontSize = 11.sp,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        color = textColor
+                        color = animatedColor
                     )
                 }
             }

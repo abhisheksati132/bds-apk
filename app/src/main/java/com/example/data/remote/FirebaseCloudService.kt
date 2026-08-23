@@ -1,20 +1,31 @@
 package com.example.data.remote
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import com.example.data.crypto.CryptoHelper
 import com.example.data.local.MessengerDao
 import com.example.data.model.*
 import com.google.firebase.FirebaseApp
+import com.google.firebase.database.*
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.messaging.FirebaseMessaging
+import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import java.io.File
+import java.io.FileOutputStream
+import java.util.UUID
 
 sealed class CloudStatus {
     object Checking : CloudStatus()
@@ -29,7 +40,8 @@ data class CloudUser(
     val avatarBgHex: String = "#DDE1FF",
     val avatarTextHex: String = "#001453",
     val about: String = "Available",
-    val isOnline: Boolean = true
+    val isOnline: Boolean = false,
+    val fcmToken: String = ""
 )
 
 class FirebaseCloudService(
@@ -39,10 +51,23 @@ class FirebaseCloudService(
 ) {
     private val TAG = "FirebaseCloudService"
     private var firestore: FirebaseFirestore? = null
+    private var realtimeDb: FirebaseDatabase? = null
+    private var storage: FirebaseStorage? = null
+
     private var incomingMessageListener: ListenerRegistration? = null
+    private var conversationStreamListener: ListenerRegistration? = null
+    private var incomingCallListener: ListenerRegistration? = null
+    private var presenceStatusListener: ValueEventListener? = null
+    private var connectionStateListener: ValueEventListener? = null
 
     private val _cloudStatus = MutableStateFlow<CloudStatus>(CloudStatus.Checking)
     val cloudStatus: StateFlow<CloudStatus> = _cloudStatus.asStateFlow()
+
+    // Realtime Database Presence Map: handle -> isOnline (Boolean)
+    private val _presenceMap = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val presenceMap: StateFlow<Map<String, Boolean>> = _presenceMap.asStateFlow()
+
+    private var currentUserHandle: String = ""
 
     init {
         initFirebase()
@@ -52,10 +77,23 @@ class FirebaseCloudService(
         try {
             if (FirebaseApp.getApps(context).isNotEmpty()) {
                 firestore = FirebaseFirestore.getInstance()
+                try {
+                    realtimeDb = FirebaseDatabase.getInstance()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Realtime Database initialization warning: ${e.message}")
+                }
+                try {
+                    storage = FirebaseStorage.getInstance()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Firebase Storage initialization warning: ${e.message}")
+                }
+
                 Log.d(TAG, "Firebase initialized successfully.")
+                syncFcmToken()
+                startRealtimePresenceListener()
             } else {
                 Log.w(TAG, "No Firebase App initialized; running in Local Encrypted Mode.")
-                _cloudStatus.value = CloudStatus.StandaloneLocal("Offline/Local Encrypted Mode (Add google-services.json to enable Cloud Relay)")
+                _cloudStatus.value = CloudStatus.StandaloneLocal("Offline/Local Encrypted Mode")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Firebase initialization exception: ${e.message}")
@@ -65,12 +103,153 @@ class FirebaseCloudService(
 
     fun isCloudAvailable(): Boolean = firestore != null
 
+    private fun syncFcmToken() {
+        try {
+            FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+                if (task.isSuccessful && task.result != null) {
+                    val token = task.result
+                    Log.d(TAG, "Fetched FCM Token: $token")
+                    val prefs = context.getSharedPreferences("vault_messenger_prefs", Context.MODE_PRIVATE)
+                    prefs.edit().putString("fcm_token", token).apply()
+
+                    val savedHandle = prefs.getString("saved_handle", "") ?: ""
+                    if (savedHandle.isNotBlank()) {
+                        scope.launch {
+                            updateUserFcmToken(savedHandle, token)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "FCM Token fetch skipped or failed: ${e.message}")
+        }
+    }
+
+    suspend fun updateUserFcmToken(handle: String, token: String) {
+        val fs = firestore ?: return
+        val clean = handle.lowercase().replace("@", "").trim()
+        if (clean.isBlank()) return
+        try {
+            fs.collection("users").document(clean).update("fcmToken", token).await()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to update FCM token for user $clean: ${e.message}")
+        }
+    }
+
+    // ==========================================
+    // 1. REALTIME DATABASE PRESENCE SYSTEM
+    // ==========================================
+    private fun setupRealtimePresence(handle: String) {
+        val rdb = realtimeDb ?: return
+        val cleanHandle = handle.lowercase().replace("@", "").trim()
+        if (cleanHandle.isBlank()) return
+
+        currentUserHandle = cleanHandle
+
+        try {
+            val connectedRef = rdb.getReference(".info/connected")
+            val userStatusRef = rdb.getReference("status/$cleanHandle")
+
+            connectionStateListener?.let { connectedRef.removeEventListener(it) }
+
+            connectionStateListener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val connected = snapshot.getValue(Boolean::class.java) ?: false
+                    if (connected) {
+                        // When client disconnects unexpectedly, set to offline
+                        val offlineState = mapOf(
+                            "state" to "offline",
+                            "last_changed" to ServerValue.TIMESTAMP,
+                            "handle" to cleanHandle
+                        )
+                        userStatusRef.onDisconnect().setValue(offlineState)
+
+                        // Set online state
+                        val onlineState = mapOf(
+                            "state" to "online",
+                            "last_changed" to ServerValue.TIMESTAMP,
+                            "handle" to cleanHandle
+                        )
+                        userStatusRef.setValue(onlineState)
+
+                        // Update local presence map immediately
+                        _presenceMap.value = _presenceMap.value.toMutableMap().apply {
+                            put(cleanHandle, true)
+                        }
+                    }
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.w(TAG, "Presence listener cancelled: ${error.message}")
+                }
+            }
+
+            connectedRef.addValueEventListener(connectionStateListener!!)
+        } catch (e: Exception) {
+            Log.w(TAG, "Realtime Database presence setup error: ${e.message}")
+        }
+    }
+
+    private fun startRealtimePresenceListener() {
+        val rdb = realtimeDb ?: return
+        try {
+            val statusRef = rdb.getReference("status")
+            presenceStatusListener?.let { statusRef.removeEventListener(it) }
+
+            presenceStatusListener = object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val newMap = mutableMapOf<String, Boolean>()
+                    for (child in snapshot.children) {
+                        val handle = child.key ?: continue
+                        val state = child.child("state").getValue(String::class.java)
+                        val isOnline = state.equals("online", ignoreCase = true)
+                        newMap[handle] = isOnline
+                    }
+                    _presenceMap.value = newMap
+                }
+
+                override fun onCancelled(error: DatabaseError) {
+                    Log.w(TAG, "Presence observer cancelled: ${error.message}")
+                }
+            }
+
+            statusRef.addValueEventListener(presenceStatusListener!!)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to start presence status observer: ${e.message}")
+        }
+    }
+
+    fun setUserOffline() {
+        val rdb = realtimeDb
+        val clean = currentUserHandle
+        if (rdb != null && clean.isNotBlank()) {
+            try {
+                val userStatusRef = rdb.getReference("status/$clean")
+                userStatusRef.setValue(
+                    mapOf(
+                        "state" to "offline",
+                        "last_changed" to ServerValue.TIMESTAMP,
+                        "handle" to clean
+                    )
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Error setting user offline: ${e.message}")
+            }
+        }
+    }
+
+    // ==========================================
+    // USER REGISTRATION & CLOUD DIRECTORY
+    // ==========================================
     suspend fun registerUser(handle: String, displayName: String, publicKey: String): Boolean {
         val fs = firestore ?: return false
         val cleanHandle = handle.lowercase().replace("@", "").trim()
         if (cleanHandle.isEmpty()) return false
 
         return try {
+            val prefs = context.getSharedPreferences("vault_messenger_prefs", Context.MODE_PRIVATE)
+            val fcmToken = prefs.getString("fcm_token", "") ?: ""
+
             val userMap = hashMapOf(
                 "handle" to cleanHandle,
                 "displayName" to displayName,
@@ -79,13 +258,15 @@ class FirebaseCloudService(
                 "avatarTextHex" to "#001453",
                 "about" to "Zero-trust encrypted peer",
                 "lastActive" to FieldValue.serverTimestamp(),
-                "isOnline" to true
+                "isOnline" to true,
+                "fcmToken" to fcmToken
             )
             fs.collection("users").document(cleanHandle)
                 .set(userMap, SetOptions.merge())
                 .await()
 
             _cloudStatus.value = CloudStatus.Connected(cleanHandle)
+            setupRealtimePresence(cleanHandle)
             startIncomingMessageListener(cleanHandle)
             true
         } catch (e: Exception) {
@@ -94,6 +275,9 @@ class FirebaseCloudService(
         }
     }
 
+    // ==========================================
+    // 2. INCOMING MESSAGES & GROUP LISTENER
+    // ==========================================
     fun startIncomingMessageListener(myHandle: String) {
         val fs = firestore ?: return
         val cleanHandle = myHandle.lowercase().replace("@", "").trim()
@@ -103,7 +287,7 @@ class FirebaseCloudService(
 
         try {
             incomingMessageListener = fs.collection("messages")
-                .whereEqualTo("recipientHandle", cleanHandle)
+                .whereArrayContains("targetRecipients", cleanHandle)
                 .addSnapshotListener { snapshots, error ->
                     if (error != null) {
                         Log.w(TAG, "Listen failed: ${error.message}")
@@ -113,12 +297,20 @@ class FirebaseCloudService(
                     if (snapshots != null && !snapshots.isEmpty) {
                         for (doc in snapshots.documents) {
                             val senderHandle = doc.getString("senderHandle") ?: continue
+                            if (senderHandle == cleanHandle) continue // Ignore own messages
+
                             val cipherText = doc.getString("cipherText") ?: ""
                             val timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
                             val msgType = doc.getString("type") ?: MessageType.TEXT.name
+                            val mediaUrl = doc.getString("mediaUrl")
                             val voiceDuration = doc.getLong("voiceDuration")?.toInt() ?: 0
                             val disappearingSeconds = doc.getLong("disappearingSeconds") ?: 0L
+                            val expiresAt = doc.getLong("expiresAtTimestamp")
                             val replyToText = doc.getString("replyToText")
+                            val isGroup = doc.getBoolean("isGroup") ?: false
+                            val groupId = doc.getString("groupId")
+                            val groupName = doc.getString("groupName")
+                            val groupMembers = (doc.get("groupMembers") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
                             val docId = doc.id
 
                             // Process message in background
@@ -127,17 +319,24 @@ class FirebaseCloudService(
                                     senderHandle = senderHandle,
                                     cipherText = cipherText,
                                     timestamp = timestamp,
-                                    type = MessageType.valueOf(msgType),
+                                    type = try { MessageType.valueOf(msgType) } catch (e: Exception) { MessageType.TEXT },
+                                    mediaUrl = mediaUrl,
                                     voiceDuration = voiceDuration,
                                     disappearingSeconds = disappearingSeconds,
-                                    replyToText = replyToText
+                                    expiresAt = expiresAt,
+                                    replyToText = replyToText,
+                                    isGroup = isGroup,
+                                    groupId = groupId,
+                                    groupName = groupName,
+                                    groupMembers = groupMembers,
+                                    cloudDocId = docId
                                 )
 
-                                // Delete message from cloud relay to ensure Zero-Knowledge persistence
+                                // Update status in Firestore to DELIVERED
                                 try {
-                                    fs.collection("messages").document(docId).delete().await()
+                                    fs.collection("messages").document(docId).update("status", "DELIVERED").await()
                                 } catch (e: Exception) {
-                                    Log.e(TAG, "Failed to clear delivered message: ${e.message}")
+                                    Log.w(TAG, "Could not update status to DELIVERED: ${e.message}")
                                 }
                             }
                         }
@@ -153,96 +352,310 @@ class FirebaseCloudService(
         cipherText: String,
         timestamp: Long,
         type: MessageType,
+        mediaUrl: String?,
         voiceDuration: Int,
         disappearingSeconds: Long,
-        replyToText: String?
+        expiresAt: Long?,
+        replyToText: String?,
+        isGroup: Boolean = false,
+        groupId: String? = null,
+        groupName: String? = null,
+        groupMembers: List<String> = emptyList(),
+        cloudDocId: String? = null
     ) {
-        var conv = dao.getConversationByHandle(senderHandle)
+        val conversationKey = if (isGroup && groupId != null) groupId else senderHandle
+        var conv = dao.getConversationByHandle(conversationKey)
         val conversationId: Long
 
+        val preview = when (type) {
+            MessageType.IMAGE -> "📷 Photo attachment"
+            MessageType.VOICE -> "🎤 Voice note (${voiceDuration}s)"
+            else -> if (cipherText.isNotEmpty()) CryptoHelper.decrypt(cipherText) else "Encrypted message"
+        }
+
         if (conv == null) {
-            // Create conversation for this sender
+            val displayName = if (isGroup) groupName ?: "Group Chat" else "@$senderHandle"
             val newConv = ConversationEntity(
-                peerId = "u_${senderHandle.replace(".", "_")}",
-                peerName = "@$senderHandle",
-                peerHandle = senderHandle,
-                avatarBgColorHex = "#EADDFF",
-                avatarTextColorHex = "#21005D",
-                lastMessage = if (type == MessageType.VOICE) "🎤 Voice note" else CryptoHelper.decrypt(cipherText),
+                peerId = if (isGroup) "grp_$conversationKey" else "u_${senderHandle.replace(".", "_")}",
+                peerName = displayName,
+                peerHandle = conversationKey,
+                avatarBgColorHex = if (isGroup) "#E8DEF8" else "#EADDFF",
+                avatarTextColorHex = if (isGroup) "#1D192B" else "#21005D",
+                lastMessage = preview,
                 lastTimestamp = timestamp,
                 unreadCount = 1,
-                isOnline = true,
+                isOnline = _presenceMap.value[senderHandle] ?: false,
+                isGroup = isGroup,
+                groupMembers = groupMembers.joinToString(","),
                 isEncrypted = true,
-                keyFingerprint = CryptoHelper.generateFingerprint(senderHandle),
-                disappearingTimerSeconds = disappearingSeconds
+                keyFingerprint = CryptoHelper.generateFingerprint(conversationKey),
+                disappearingTimerSeconds = disappearingSeconds,
+                cloudDocId = groupId
             )
             conversationId = dao.insertConversation(newConv)
         } else {
             conversationId = conv.id
-            val preview = if (type == MessageType.VOICE) "🎤 Voice note" else CryptoHelper.decrypt(cipherText)
             dao.updateConversation(
                 conv.copy(
                     lastMessage = preview,
                     lastTimestamp = timestamp,
-                    unreadCount = conv.unreadCount + 1
+                    unreadCount = conv.unreadCount + 1,
+                    disappearingTimerSeconds = if (disappearingSeconds > 0) disappearingSeconds else conv.disappearingTimerSeconds
                 )
             )
         }
 
-        val decrypted = CryptoHelper.decrypt(cipherText)
-        val expiresAt = if (disappearingSeconds > 0) timestamp + (disappearingSeconds * 1000L) else null
+        val decrypted = if (type == MessageType.TEXT && cipherText.isNotEmpty()) CryptoHelper.decrypt(cipherText) else preview
+        val computedExpiresAt = expiresAt ?: if (disappearingSeconds > 0) timestamp + (disappearingSeconds * 1000L) else null
 
         val message = MessageEntity(
             conversationId = conversationId,
             senderId = senderHandle,
+            senderName = "@$senderHandle",
             text = decrypted,
             cipherText = cipherText,
             timestamp = timestamp,
             isMe = false,
             status = MessageStatus.READ,
             type = type,
+            mediaUrl = mediaUrl,
             voiceDurationSeconds = voiceDuration,
             isDisappearing = disappearingSeconds > 0,
-            expiresAtTimestamp = expiresAt,
-            replyToText = replyToText
+            expiresAtTimestamp = computedExpiresAt,
+            replyToText = replyToText,
+            cloudMsgDocId = cloudDocId
         )
 
         dao.insertMessage(message)
     }
 
+    // ==========================================
+    // 3. SEND MESSAGE & GROUP MESSAGE
+    // ==========================================
     suspend fun sendCloudMessage(
         senderHandle: String,
         recipientHandle: String,
         cipherText: String,
         type: MessageType = MessageType.TEXT,
+        mediaUrl: String? = null,
         voiceDurationSeconds: Int = 0,
         disappearingTimerSeconds: Long = 0,
-        replyToText: String? = null
-    ): Boolean {
-        val fs = firestore ?: return false
-        val cleanRecipient = recipientHandle.lowercase().replace("@", "").trim()
+        replyToText: String? = null,
+        isGroup: Boolean = false,
+        groupId: String? = null,
+        groupName: String? = null,
+        groupMembers: List<String> = emptyList()
+    ): String? {
+        val fs = firestore ?: return null
         val cleanSender = senderHandle.lowercase().replace("@", "").trim()
+        val cleanRecipient = recipientHandle.lowercase().replace("@", "").trim()
 
-        if (cleanRecipient.isEmpty() || cleanSender.isEmpty()) return false
+        if (cleanSender.isEmpty()) return null
+
+        val now = System.currentTimeMillis()
+        val expiresAt = if (disappearingTimerSeconds > 0) now + (disappearingTimerSeconds * 1000L) else null
+
+        val targetRecipients = if (isGroup) {
+            groupMembers.map { it.lowercase().replace("@", "").trim() }.filter { it.isNotEmpty() }
+        } else {
+            listOf(cleanRecipient, cleanSender)
+        }
 
         return try {
             val payload = hashMapOf(
                 "senderHandle" to cleanSender,
                 "recipientHandle" to cleanRecipient,
+                "targetRecipients" to targetRecipients,
                 "cipherText" to cipherText,
-                "timestamp" to System.currentTimeMillis(),
+                "timestamp" to now,
                 "type" to type.name,
+                "mediaUrl" to (mediaUrl ?: ""),
                 "voiceDuration" to voiceDurationSeconds,
                 "disappearingSeconds" to disappearingTimerSeconds,
-                "replyToText" to replyToText,
+                "expiresAtTimestamp" to expiresAt,
+                "replyToText" to (replyToText ?: ""),
+                "isGroup" to isGroup,
+                "groupId" to (groupId ?: ""),
+                "groupName" to (groupName ?: ""),
+                "groupMembers" to groupMembers,
                 "status" to "SENT"
             )
 
-            fs.collection("messages").add(payload).await()
-            true
+            val docRef = fs.collection("messages").add(payload).await()
+            docRef.id
         } catch (e: Exception) {
             Log.e(TAG, "Failed to relay cloud message: ${e.message}")
-            false
+            null
+        }
+    }
+
+    // ==========================================
+    // 4. READ RECEIPTS (SEEN / DELIVERED)
+    // ==========================================
+    suspend fun markMessagesAsReadInCloud(peerHandle: String, myHandle: String) {
+        val fs = firestore ?: return
+        val cleanMe = myHandle.lowercase().replace("@", "").trim()
+        val cleanPeer = peerHandle.lowercase().replace("@", "").trim()
+        if (cleanMe.isEmpty() || cleanPeer.isEmpty()) return
+
+        try {
+            // Find messages sent by peer to me that are not yet marked READ
+            val query = fs.collection("messages")
+                .whereEqualTo("senderHandle", cleanPeer)
+                .whereArrayContains("targetRecipients", cleanMe)
+                .whereNotEqualTo("status", "READ")
+                .limit(50)
+                .get()
+                .await()
+
+            if (!query.isEmpty) {
+                for (doc in query.documents) {
+                    try {
+                        doc.reference.update(
+                            mapOf(
+                                "status" to "READ",
+                                "readTimestamp" to FieldValue.serverTimestamp()
+                            )
+                        ).await()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed updating read receipt for doc ${doc.id}: ${e.message}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Mark read in cloud query: ${e.message}")
+        }
+    }
+
+    // ==========================================
+    // 5. GROUP CHAT CREATION IN FIRESTORE
+    // ==========================================
+    suspend fun createGroupInCloud(
+        groupName: String,
+        memberHandles: List<String>,
+        adminHandle: String
+    ): String? {
+        val fs = firestore ?: return null
+        val cleanAdmin = adminHandle.lowercase().replace("@", "").trim()
+        val cleanMembers = (memberHandles + cleanAdmin)
+            .map { it.lowercase().replace("@", "").trim() }
+            .distinct()
+            .filter { it.isNotEmpty() }
+
+        return try {
+            val groupDoc = fs.collection("groups").document()
+            val payload = hashMapOf(
+                "groupId" to groupDoc.id,
+                "name" to groupName,
+                "adminHandle" to cleanAdmin,
+                "members" to cleanMembers,
+                "createdAt" to FieldValue.serverTimestamp(),
+                "avatarBgHex" to "#E8DEF8",
+                "avatarTextHex" to "#1D192B"
+            )
+            groupDoc.set(payload).await()
+            groupDoc.id
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create group in cloud: ${e.message}")
+            null
+        }
+    }
+
+    // ==========================================
+    // 6. FIREBASE STORAGE IMAGE UPLOAD
+    // ==========================================
+    suspend fun uploadChatImage(
+        imageUri: Uri,
+        conversationId: String
+    ): String? {
+        val st = storage
+        if (st != null) {
+            try {
+                val imageRef = st.reference.child("chat_images/$conversationId/${UUID.randomUUID()}.jpg")
+                val stream = context.contentResolver.openInputStream(imageUri)
+                if (stream != null) {
+                    imageRef.putStream(stream).await()
+                    val downloadUrl = imageRef.downloadUrl.await().toString()
+                    return downloadUrl
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Firebase Storage upload failed: ${e.message}. Saving local copy.")
+            }
+        }
+
+        // Offline / Local File fallback
+        return try {
+            val localFile = File(context.filesDir, "chat_img_${UUID.randomUUID()}.jpg")
+            context.contentResolver.openInputStream(imageUri)?.use { input ->
+                FileOutputStream(localFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            Uri.fromFile(localFile).toString()
+        } catch (e: Exception) {
+            Log.e(TAG, "Local image save fallback error: ${e.message}")
+            imageUri.toString()
+        }
+    }
+
+    // ==========================================
+    // DISAPPEARING MESSAGES PURGE
+    // ==========================================
+    suspend fun purgeExpiredCloudMessages() {
+        val fs = firestore ?: return
+        val now = System.currentTimeMillis()
+        try {
+            val snapshot = fs.collection("messages")
+                .whereGreaterThan("disappearingSeconds", 0)
+                .whereLessThanOrEqualTo("expiresAtTimestamp", now)
+                .limit(50)
+                .get()
+                .await()
+
+            if (!snapshot.isEmpty) {
+                for (doc in snapshot.documents) {
+                    try {
+                        doc.reference.delete().await()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to delete expired cloud message ${doc.id}: ${e.message}")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Purge cloud query: ${e.message}")
+        }
+    }
+
+    /**
+     * Real-time SnapshotListener on Firestore to stream messages for an active conversation.
+     */
+    fun streamConversationMessages(
+        myHandle: String,
+        peerHandle: String,
+        onMessagesReceived: (List<Map<String, Any>>) -> Unit
+    ): ListenerRegistration? {
+        val fs = firestore ?: return null
+        val cleanMe = myHandle.lowercase().replace("@", "").trim()
+        val cleanPeer = peerHandle.lowercase().replace("@", "").trim()
+        if (cleanMe.isEmpty() || cleanPeer.isEmpty()) return null
+
+        return try {
+            fs.collection("messages")
+                .whereArrayContains("targetRecipients", cleanMe)
+                .orderBy("timestamp", Query.Direction.ASCENDING)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        Log.w(TAG, "Conversation stream error: ${error.message}")
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        val messagesList = snapshot.documents.mapNotNull { it.data }
+                        onMessagesReceived(messagesList)
+                    }
+                }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to stream conversation: ${e.message}")
+            null
         }
     }
 
@@ -254,6 +667,7 @@ class FirebaseCloudService(
         return try {
             val snapshot = fs.collection("users").document(clean).get().await()
             if (snapshot.exists()) {
+                val isOnlinePresence = _presenceMap.value[clean] ?: snapshot.getBoolean("isOnline") ?: false
                 CloudUser(
                     handle = snapshot.getString("handle") ?: clean,
                     displayName = snapshot.getString("displayName") ?: clean,
@@ -261,7 +675,8 @@ class FirebaseCloudService(
                     avatarBgHex = snapshot.getString("avatarBgHex") ?: "#DDE1FF",
                     avatarTextHex = snapshot.getString("avatarTextHex") ?: "#001453",
                     about = snapshot.getString("about") ?: "Available",
-                    isOnline = snapshot.getBoolean("isOnline") ?: true
+                    isOnline = isOnlinePresence,
+                    fcmToken = snapshot.getString("fcmToken") ?: ""
                 )
             } else null
         } catch (e: Exception) {
@@ -270,8 +685,202 @@ class FirebaseCloudService(
         }
     }
 
+    suspend fun getRecentRegisteredUsers(): List<CloudUser> {
+        val fs = firestore ?: return emptyList()
+        return try {
+            val snapshot = fs.collection("users")
+                .limit(50)
+                .get()
+                .await()
+            snapshot.documents.mapNotNull { doc ->
+                val handle = doc.getString("handle") ?: return@mapNotNull null
+                val isOnlinePresence = _presenceMap.value[handle] ?: doc.getBoolean("isOnline") ?: false
+                CloudUser(
+                    handle = handle,
+                    displayName = doc.getString("displayName") ?: handle,
+                    publicKey = doc.getString("publicKey") ?: "ECDH-P256",
+                    avatarBgHex = doc.getString("avatarBgHex") ?: "#DDE1FF",
+                    avatarTextHex = doc.getString("avatarTextHex") ?: "#001453",
+                    about = doc.getString("about") ?: "Available",
+                    isOnline = isOnlinePresence,
+                    fcmToken = doc.getString("fcmToken") ?: ""
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load recent registered users: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /**
+     * Real-time Flow of all registered users in Firestore combined with presence.
+     */
+    fun observeRegisteredUsers(): Flow<List<CloudUser>> = callbackFlow {
+        val fs = firestore
+        if (fs == null) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+
+        val listener = fs.collection("users")
+            .limit(100)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.w(TAG, "Users listener error: ${error.message}")
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    val users = snapshot.documents.mapNotNull { doc ->
+                        val handle = doc.getString("handle") ?: return@mapNotNull null
+                        val isOnline = _presenceMap.value[handle] ?: doc.getBoolean("isOnline") ?: false
+                        CloudUser(
+                            handle = handle,
+                            displayName = doc.getString("displayName") ?: handle,
+                            publicKey = doc.getString("publicKey") ?: "ECDH-P256",
+                            avatarBgHex = doc.getString("avatarBgHex") ?: "#DDE1FF",
+                            avatarTextHex = doc.getString("avatarTextHex") ?: "#001453",
+                            about = doc.getString("about") ?: "Available",
+                            isOnline = isOnline,
+                            fcmToken = doc.getString("fcmToken") ?: ""
+                        )
+                    }
+                    trySend(users)
+                }
+            }
+
+        awaitClose { listener.remove() }
+    }
+
+    // ==========================================
+    // CALL SIGNALING SERVICE
+    // ==========================================
+    fun startIncomingCallListener(myHandle: String, onIncomingCall: (CallSignal) -> Unit) {
+        val fs = firestore ?: return
+        val clean = myHandle.lowercase().replace("@", "").trim()
+        if (clean.isEmpty()) return
+
+        incomingCallListener?.remove()
+        try {
+            incomingCallListener = fs.collection("call_signals")
+                .whereEqualTo("recipientHandle", clean)
+                .whereEqualTo("status", "OFFERING")
+                .addSnapshotListener { snapshots, error ->
+                    if (error != null) {
+                        Log.w(TAG, "Call signal listener error: ${error.message}")
+                        return@addSnapshotListener
+                    }
+                    if (snapshots != null && !snapshots.isEmpty) {
+                        for (doc in snapshots.documents) {
+                            val call = CallSignal(
+                                callId = doc.id,
+                                callerHandle = doc.getString("callerHandle") ?: "",
+                                callerName = doc.getString("callerName") ?: "Peer",
+                                recipientHandle = doc.getString("recipientHandle") ?: "",
+                                isVideo = doc.getBoolean("isVideo") ?: false,
+                                status = doc.getString("status") ?: "OFFERING",
+                                timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
+                            )
+                            onIncomingCall(call)
+                        }
+                    }
+                }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start call listener: ${e.message}")
+        }
+    }
+
+    suspend fun initiateCall(callerHandle: String, callerName: String, recipientHandle: String, isVideo: Boolean): String? {
+        val fs = firestore ?: return null
+        val cleanRecipient = recipientHandle.lowercase().replace("@", "").trim()
+        val cleanCaller = callerHandle.lowercase().replace("@", "").trim()
+        if (cleanRecipient.isEmpty() || cleanCaller.isEmpty()) return null
+
+        return try {
+            val callDoc = fs.collection("call_signals").document()
+            val payload = hashMapOf(
+                "callId" to callDoc.id,
+                "callerHandle" to cleanCaller,
+                "callerName" to callerName,
+                "recipientHandle" to cleanRecipient,
+                "isVideo" to isVideo,
+                "status" to "OFFERING",
+                "timestamp" to System.currentTimeMillis()
+            )
+            callDoc.set(payload).await()
+            callDoc.id
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initiate call signal: ${e.message}")
+            null
+        }
+    }
+
+    suspend fun acceptCall(callId: String) {
+        val fs = firestore ?: return
+        try {
+            fs.collection("call_signals").document(callId)
+                .update("status", "ACCEPTED")
+                .await()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to accept call: ${e.message}")
+        }
+    }
+
+    suspend fun rejectCall(callId: String) {
+        val fs = firestore ?: return
+        try {
+            fs.collection("call_signals").document(callId)
+                .update("status", "REJECTED")
+                .await()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to reject call: ${e.message}")
+        }
+    }
+
+    suspend fun endCall(callId: String) {
+        val fs = firestore ?: return
+        try {
+            fs.collection("call_signals").document(callId)
+                .update("status", "ENDED")
+                .await()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to end call: ${e.message}")
+        }
+    }
+
+    fun observeCallState(callId: String, onStatusChanged: (String) -> Unit): ListenerRegistration? {
+        val fs = firestore ?: return null
+        return try {
+            fs.collection("call_signals").document(callId)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) return@addSnapshotListener
+                    if (snapshot != null && snapshot.exists()) {
+                        val status = snapshot.getString("status") ?: "ENDED"
+                        onStatusChanged(status)
+                    }
+                }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     fun stopListener() {
+        setUserOffline()
         incomingMessageListener?.remove()
         incomingMessageListener = null
+        incomingCallListener?.remove()
+        incomingCallListener = null
+        conversationStreamListener?.remove()
+        conversationStreamListener = null
     }
 }
+
+data class CallSignal(
+    val callId: String = "",
+    val callerHandle: String = "",
+    val callerName: String = "",
+    val recipientHandle: String = "",
+    val isVideo: Boolean = false,
+    val status: String = "OFFERING",
+    val timestamp: Long = System.currentTimeMillis()
+)

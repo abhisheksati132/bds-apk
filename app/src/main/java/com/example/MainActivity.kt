@@ -1,20 +1,35 @@
 package com.example
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.remote.CallSignal
 import com.example.ui.components.CleanBottomNavBar
 import com.example.ui.screens.*
 import com.example.ui.theme.MyApplicationTheme
@@ -37,6 +52,40 @@ class MainActivity : ComponentActivity() {
                 val statuses by viewModel.statuses.collectAsStateWithLifecycle()
                 val calls by viewModel.calls.collectAsStateWithLifecycle()
 
+                // Notification Permission for FCM (Android 13+)
+                val notificationPermissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestPermission(),
+                    onResult = { /* FCM will dispatch messages */ }
+                )
+
+                LaunchedEffect(Unit) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        if (ContextCompat.checkSelfPermission(
+                                this@MainActivity,
+                                Manifest.permission.POST_NOTIFICATIONS
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
+                }
+
+                // Local Security Gate: Lock app whenever brought to the foreground
+                val lifecycleOwner = LocalLifecycleOwner.current
+                DisposableEffect(lifecycleOwner, uiState.isPinEnabled, uiState.pinCode) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_START) {
+                            if (uiState.isPinEnabled && uiState.pinCode.isNotBlank()) {
+                                viewModel.lockApp()
+                            }
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose {
+                        lifecycleOwner.lifecycle.removeObserver(observer)
+                    }
+                }
+
                 // Dynamically apply FLAG_SECURE for screenshot blocking
                 LaunchedEffect(uiState.preventScreenshots) {
                     if (uiState.preventScreenshots) {
@@ -49,8 +98,29 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Security PIN Lock Screen
-                if (uiState.isAppLocked) {
+                // Unauthenticated State: Full-Screen Onboarding & Auth
+                if (!uiState.isAuthenticated) {
+                    AuthScreen(
+                        isLoading = uiState.isAuthLoading,
+                        errorMessage = uiState.authErrorMessage,
+                        onSignUpWithEmail = { email, pass, handle, onResult ->
+                            viewModel.signUpWithEmail(email, pass, handle, onResult)
+                        },
+                        onSignInWithEmail = { email, pass, onResult ->
+                            viewModel.signInWithEmail(email, pass, onResult)
+                        },
+                        onSignInWithGoogle = { ctx, onResult ->
+                            viewModel.signInWithGoogle(ctx, onResult)
+                        },
+                        onGuestLogin = { handle ->
+                            viewModel.loginAsGuest(handle)
+                        },
+                        onSendPasswordReset = { email, onResult ->
+                            viewModel.sendPasswordReset(email, onResult)
+                        }
+                    )
+                } else if (uiState.isAppLocked) {
+                    // Local Security Gate: 4-digit PIN lock screen
                     PinLockScreen(
                         onUnlock = { pin -> viewModel.unlockWithPin(pin) }
                     )
@@ -67,7 +137,7 @@ class MainActivity : ComponentActivity() {
                         onEndCall = { viewModel.endCall() }
                     )
                 } else if (uiState.activeConversationId != null) {
-                    // Active Conversation Screen
+                    // Responsive Live Conversation Screen
                     val currentConv by viewModel.currentConversation(uiState.activeConversationId!!)
                         .collectAsStateWithLifecycle(initialValue = null)
                     val messages by viewModel.currentMessages(uiState.activeConversationId!!)
@@ -91,10 +161,18 @@ class MainActivity : ComponentActivity() {
                                     disappearingTimerSeconds = timer
                                 )
                             },
+                            onSendImage = { uri, isDisappearing, timer ->
+                                viewModel.sendImage(
+                                    conversationId = currentConv!!.id,
+                                    imageUri = uri,
+                                    isDisappearing = isDisappearing,
+                                    disappearingTimerSeconds = timer
+                                )
+                            },
                             onStartVoiceRecording = { viewModel.startVoiceRecording() },
                             onCancelVoiceRecording = { viewModel.cancelVoiceRecording() },
-                            onFinishVoiceRecording = { convId, isDisappearing, timer ->
-                                viewModel.finishVoiceRecording(convId, isDisappearing, timer)
+                            onFinishVoiceRecording = { duration, isDisappearing, timer ->
+                                viewModel.finishVoiceRecording(currentConv!!.id, isDisappearing, timer)
                             },
                             onStartCall = { peer, isVideo -> viewModel.startCall(peer, isVideo) },
                             onUpdateDisappearingTimer = { convId, seconds ->
@@ -116,7 +194,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 } else {
-                    // Main Tabs Navigation
+                    // Main Tabs Navigation (Chats, Contacts, Status, Calls, Vault)
                     Scaffold(
                         modifier = Modifier.fillMaxSize(),
                         bottomBar = {
@@ -139,8 +217,33 @@ class MainActivity : ComponentActivity() {
                                         onOpenConversation = { id -> viewModel.openConversation(id) },
                                         onOpenNewChat = { viewModel.setNewChatDialogOpen(true) },
                                         onOpenVault = { viewModel.setTab(MainTab.VAULT_SECURITY) },
+                                        onOpenAuth = { viewModel.setAuthDialogOpen(true) },
                                         onSearchQueryChanged = { q -> viewModel.setSearchQuery(q) },
                                         onFilterSelected = { f -> viewModel.setFilter(f) }
+                                    )
+                                }
+                                MainTab.CONTACTS -> {
+                                    ContactsScreen(
+                                        contacts = contacts,
+                                        cloudUsers = uiState.cloudUsers,
+                                        myHandle = uiState.myHandle,
+                                        presenceMap = uiState.presenceMap,
+                                        onStartChatWithContact = { contact ->
+                                            viewModel.startNewChatWithContact(contact)
+                                        },
+                                        onStartChatWithCloudUser = { cloudUser ->
+                                            viewModel.startNewChatWithCloudUser(cloudUser)
+                                        },
+                                        onStartCallWithUser = { name, handle, isVideo ->
+                                            viewModel.startCallWithUser(name, handle, isVideo)
+                                        },
+                                        onAddCustomContact = { name, handle ->
+                                            viewModel.createCustomContactAndChat(name, handle)
+                                        },
+                                        onSearchCloudPeer = { handle, onResult ->
+                                            viewModel.searchAndAddCloudPeer(handle, onResult)
+                                        },
+                                        isSearchingCloud = uiState.isSearchingCloud
                                     )
                                 }
                                 MainTab.STATUS -> {
@@ -165,7 +268,8 @@ class MainActivity : ComponentActivity() {
                                         onLockAppNow = { viewModel.lockApp() },
                                         onPanicWipeData = { viewModel.panicWipeAllData() },
                                         onUpdateHandle = { handle -> viewModel.updateMyHandle(handle) },
-                                        onRotateKeys = { viewModel.rotateMyKeys() }
+                                        onRotateKeys = { viewModel.rotateMyKeys() },
+                                        onOpenAuthDialog = { viewModel.setAuthDialogOpen(true) }
                                     )
                                 }
                             }
@@ -175,8 +279,16 @@ class MainActivity : ComponentActivity() {
                         if (uiState.isNewChatDialogOpen) {
                             NewChatDialog(
                                 contacts = contacts,
+                                cloudUsers = uiState.cloudUsers,
                                 onSelectContact = { contact ->
                                     viewModel.startNewChatWithContact(contact)
+                                },
+                                onSelectCloudUser = { cloudUser ->
+                                    viewModel.startNewChatWithCloudUser(cloudUser)
+                                },
+                                onOpenCreateGroup = {
+                                    viewModel.setNewChatDialogOpen(false)
+                                    viewModel.setCreateGroupDialogOpen(true)
                                 },
                                 onCreateContactAndChat = { name, handle ->
                                     viewModel.createCustomContactAndChat(name, handle)
@@ -186,6 +298,85 @@ class MainActivity : ComponentActivity() {
                                 },
                                 isSearchingCloud = uiState.isSearchingCloud,
                                 onDismiss = { viewModel.setNewChatDialogOpen(false) }
+                            )
+                        }
+
+                        // Dialog to create new group chat
+                        if (uiState.isCreateGroupDialogOpen) {
+                            CreateGroupDialog(
+                                contacts = contacts,
+                                cloudUsers = uiState.cloudUsers,
+                                myHandle = uiState.myHandle,
+                                onCreateGroup = { name, members ->
+                                    viewModel.createGroupChat(name, members)
+                                },
+                                onDismiss = { viewModel.setCreateGroupDialogOpen(false) }
+                            )
+                        }
+
+                        // Firebase Auth Dialog
+                        if (uiState.isAuthDialogOpen) {
+                            AuthDialog(
+                                currentUser = uiState.authUser,
+                                isLoading = uiState.isAuthLoading,
+                                errorMessage = uiState.authErrorMessage,
+                                onSignUpWithEmail = { email, pass, handle, onResult ->
+                                    viewModel.signUpWithEmail(email, pass, handle, onResult)
+                                },
+                                onSignInWithEmail = { email, pass, onResult ->
+                                    viewModel.signInWithEmail(email, pass, onResult)
+                                },
+                                onSignInWithGoogle = { ctx, onResult ->
+                                    viewModel.signInWithGoogle(ctx, onResult)
+                                },
+                                onSendPasswordReset = { email, onResult ->
+                                    viewModel.sendPasswordReset(email, onResult)
+                                },
+                                onSignOut = { viewModel.signOut() },
+                                onDismiss = { viewModel.setAuthDialogOpen(false) }
+                            )
+                        }
+
+                        // Real-time Incoming Call Dialog
+                        val currentIncomingCall = uiState.incomingCall
+                        if (currentIncomingCall != null) {
+                            AlertDialog(
+                                onDismissRequest = { viewModel.rejectIncomingCall() },
+                                icon = {
+                                    Icon(
+                                        imageVector = if (currentIncomingCall.isVideo) Icons.Default.Videocam else Icons.Default.Call,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                },
+                                title = {
+                                    Text("Incoming ${if (currentIncomingCall.isVideo) "Video" else "Voice"} Call", fontWeight = FontWeight.Bold)
+                                },
+                                text = {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                                        Text(currentIncomingCall.callerName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                                        Text("@${currentIncomingCall.callerHandle}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text("End-to-End Encrypted Live Call", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                },
+                                confirmButton = {
+                                    Button(
+                                        onClick = { viewModel.acceptIncomingCall() },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                                    ) {
+                                        Text("Accept")
+                                    }
+                                },
+                                dismissButton = {
+                                    OutlinedButton(
+                                        onClick = { viewModel.rejectIncomingCall() },
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                    ) {
+                                        Text("Decline")
+                                    }
+                                }
                             )
                         }
                     }

@@ -59,6 +59,7 @@ fun ChatListScreen(
     onOpenConversation: (Long) -> Unit,
     onOpenNewChat: () -> Unit,
     onOpenVault: () -> Unit,
+    onOpenAuth: () -> Unit = {},
     onSearchQueryChanged: (String) -> Unit,
     onFilterSelected: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -128,6 +129,21 @@ fun ChatListScreen(
                                 imageVector = if (isSearchExpanded) Icons.Outlined.Close else Icons.Outlined.Search,
                                 contentDescription = "Search messages",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        IconButton(
+                            onClick = onOpenAuth,
+                            modifier = Modifier
+                                .testTag("header_auth_button")
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(if (uiState.authUser != null) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Icon(
+                                imageVector = if (uiState.authUser != null) Icons.Default.AccountCircle else Icons.Default.LockPerson,
+                                contentDescription = "Firebase Account",
+                                tint = if (uiState.authUser != null) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
 

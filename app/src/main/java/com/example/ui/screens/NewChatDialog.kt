@@ -6,10 +6,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudDone
-import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,12 +19,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.model.ContactEntity
+import com.example.data.remote.CloudUser
 import com.example.ui.components.AvatarView
 
 @Composable
 fun NewChatDialog(
     contacts: List<ContactEntity>,
+    cloudUsers: List<CloudUser> = emptyList(),
     onSelectContact: (ContactEntity) -> Unit,
+    onSelectCloudUser: (CloudUser) -> Unit = {},
+    onOpenCreateGroup: () -> Unit = {},
     onCreateContactAndChat: (name: String, handle: String) -> Unit,
     onSearchCloudPeer: (handle: String, onResult: (Boolean, String) -> Unit) -> Unit = { _, _ -> },
     isSearchingCloud: Boolean = false,
@@ -41,14 +44,15 @@ fun NewChatDialog(
         title = {
             Text(
                 text = if (isAddingCustom) "New Privacy Contact" else "Start Encrypted Chat",
-                style = MaterialTheme.typography.titleLarge
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold
             )
         },
         text = {
             if (isAddingCustom) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Enter a peer's @handle to connect live via Firebase Cloud Relay or local encrypted channel:",
+                        text = "Enter any peer's @handle to connect live over Firebase Cloud Relay:",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -92,8 +96,37 @@ fun NewChatDialog(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 350.dp)
+                        .heightIn(max = 440.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Action button to Create Group Chat
+                    Surface(
+                        color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenCreateGroup() }
+                            .testTag("btn_start_new_group")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Groups,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                            Text(
+                                text = "New Group Chat (Multi-user)",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+
                     // Action button to enter handle
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
@@ -101,7 +134,6 @@ fun NewChatDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { isAddingCustom = true }
-                            .padding(bottom = 12.dp)
                     ) {
                         Row(
                             modifier = Modifier.padding(12.dp),
@@ -114,7 +146,7 @@ fun NewChatDialog(
                                 tint = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Text(
-                                text = "Enter Privacy Handle / Connect Cloud",
+                                text = "Search Peer @Handle / Connect Cloud",
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                                 fontSize = 13.sp
@@ -122,18 +154,84 @@ fun NewChatDialog(
                         }
                     }
 
+                    // Cloud Registered Users section
+                    if (cloudUsers.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Public,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Registered Cloud Users",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 140.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            items(cloudUsers, key = { "cloud_${it.handle}" }) { user ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { onSelectCloudUser(user) }
+                                        .padding(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    AvatarView(
+                                        name = user.displayName,
+                                        bgHex = user.avatarBgHex,
+                                        textHex = user.avatarTextHex,
+                                        size = 36.dp,
+                                        isOnline = user.isOnline
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = user.displayName,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 13.sp
+                                        )
+                                        Text(
+                                            text = "@${user.handle}",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Badge(containerColor = MaterialTheme.colorScheme.primaryContainer) {
+                                        Text("Cloud", fontSize = 9.sp, modifier = Modifier.padding(horizontal = 4.dp))
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    }
+
                     Text(
                         text = "Saved Contacts",
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(vertical = 6.dp)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 2.dp)
                     )
 
-                    if (contacts.isEmpty()) {
+                    if (contacts.isEmpty() && cloudUsers.isEmpty()) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 24.dp),
+                                .padding(vertical = 18.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -144,7 +242,7 @@ fun NewChatDialog(
                         }
                     } else {
                         LazyColumn(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().weight(1f, fill = false),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             items(contacts, key = { it.handle }) { contact ->
@@ -161,7 +259,7 @@ fun NewChatDialog(
                                         name = contact.name,
                                         bgHex = contact.avatarBgHex,
                                         textHex = contact.avatarTextHex,
-                                        size = 40.dp
+                                        size = 38.dp
                                     )
                                     Column {
                                         Text(
@@ -225,4 +323,3 @@ fun NewChatDialog(
         }
     )
 }
-

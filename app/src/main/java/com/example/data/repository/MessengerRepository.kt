@@ -1,13 +1,17 @@
 package com.example.data.repository
 
+import android.net.Uri
 import com.example.data.crypto.CryptoHelper
 import com.example.data.local.MessengerDao
 import com.example.data.model.*
 import com.example.data.remote.CloudUser
 import com.example.data.remote.FirebaseCloudService
+import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import java.util.UUID
 
 class MessengerRepository(
     private val dao: MessengerDao,
@@ -19,11 +23,12 @@ class MessengerRepository(
     val allStatuses: Flow<List<StatusEntity>> = dao.getAllStatuses()
     val allCalls: Flow<List<CallEntity>> = dao.getAllCalls()
 
+    val presenceMap: Flow<Map<String, Boolean>> = cloudService?.presenceMap ?: flowOf(emptyMap())
+
     fun getConversation(id: Long): Flow<ConversationEntity?> = dao.getConversationById(id)
 
     fun getMessages(conversationId: Long): Flow<List<MessageEntity>> =
         dao.getMessagesForConversation(conversationId).map { list ->
-            // In a real encrypted pipeline, cipherText is decrypted to text
             list.map { msg ->
                 if (msg.text.isEmpty() && msg.cipherText.isNotEmpty()) {
                     msg.copy(text = CryptoHelper.decrypt(msg.cipherText))
@@ -33,6 +38,18 @@ class MessengerRepository(
             }
         }
 
+    fun observeCloudUsers(): Flow<List<CloudUser>> {
+        return cloudService?.observeRegisteredUsers() ?: flowOf(emptyList())
+    }
+
+    fun streamConversation(
+        myHandle: String,
+        peerHandle: String,
+        onMessagesReceived: (List<Map<String, Any>>) -> Unit
+    ): ListenerRegistration? {
+        return cloudService?.streamConversationMessages(myHandle, peerHandle, onMessagesReceived)
+    }
+
     suspend fun sendMessage(
         conversationId: Long,
         text: String,
@@ -41,6 +58,7 @@ class MessengerRepository(
         replyToId: Long? = null,
         replyToText: String? = null,
         type: MessageType = MessageType.TEXT,
+        mediaUrl: String? = null,
         voiceDurationSeconds: Int = 0,
         myHandle: String = "me"
     ) {
@@ -49,19 +67,21 @@ class MessengerRepository(
             now + (disappearingTimerSeconds * 1000L)
         } else null
 
-        val cipher = CryptoHelper.encrypt(text)
+        val cipher = if (type == MessageType.TEXT) CryptoHelper.encrypt(text) else ""
 
         val message = MessageEntity(
             conversationId = conversationId,
             senderId = "me",
+            senderName = "You",
             text = text,
             cipherText = cipher,
             timestamp = now,
             isMe = true,
             status = MessageStatus.SENT,
             type = type,
+            mediaUrl = mediaUrl,
             voiceDurationSeconds = voiceDurationSeconds,
-            isDisappearing = isDisappearing,
+            isDisappearing = isDisappearing || disappearingTimerSeconds > 0,
             expiresAtTimestamp = expiresAt,
             replyToId = replyToId,
             replyToText = replyToText
@@ -69,36 +89,122 @@ class MessengerRepository(
 
         dao.insertMessage(message)
 
-        // Update conversation last message & timestamp
-        val preview = if (type == MessageType.VOICE) "🎤 Voice message (${voiceDurationSeconds}s)" else text
+        // Update conversation preview & timer
+        val preview = when (type) {
+            MessageType.IMAGE -> "📷 Photo attachment"
+            MessageType.VOICE -> "🎤 Voice message (${voiceDurationSeconds}s)"
+            else -> text
+        }
+
         val conv = dao.getConversationById(conversationId).firstOrNull()
         if (conv != null) {
             dao.updateConversation(
                 conv.copy(
                     lastMessage = preview,
-                    lastTimestamp = now
+                    lastTimestamp = now,
+                    disappearingTimerSeconds = if (disappearingTimerSeconds > 0) disappearingTimerSeconds else conv.disappearingTimerSeconds
                 )
             )
 
-            // Relay via Firebase Cloud if active
+            // Relay via Firebase Cloud
+            val groupMembersList = if (conv.isGroup && !conv.groupMembers.isNullOrEmpty()) {
+                conv.groupMembers.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            } else emptyList()
+
             cloudService?.sendCloudMessage(
                 senderHandle = myHandle,
                 recipientHandle = conv.peerHandle,
                 cipherText = cipher,
                 type = type,
+                mediaUrl = mediaUrl,
                 voiceDurationSeconds = voiceDurationSeconds,
                 disappearingTimerSeconds = disappearingTimerSeconds,
-                replyToText = replyToText
+                replyToText = replyToText,
+                isGroup = conv.isGroup,
+                groupId = conv.cloudDocId ?: if (conv.isGroup) conv.peerHandle else null,
+                groupName = if (conv.isGroup) conv.peerName else null,
+                groupMembers = groupMembersList
             )
         }
     }
 
-    suspend fun searchCloudUser(handle: String): CloudUser? {
-        return cloudService?.searchUserByHandle(handle)
+    suspend fun sendImageMessage(
+        conversationId: Long,
+        imageUri: Uri,
+        isDisappearing: Boolean = false,
+        disappearingTimerSeconds: Long = 0,
+        myHandle: String = "me"
+    ) {
+        val conv = dao.getConversationById(conversationId).firstOrNull()
+        val convKey = conv?.peerHandle ?: conversationId.toString()
+
+        // Upload to Firebase Storage
+        val mediaUrl = cloudService?.uploadChatImage(imageUri, convKey) ?: imageUri.toString()
+
+        sendMessage(
+            conversationId = conversationId,
+            text = "📷 Photo",
+            isDisappearing = isDisappearing,
+            disappearingTimerSeconds = disappearingTimerSeconds,
+            type = MessageType.IMAGE,
+            mediaUrl = mediaUrl,
+            myHandle = myHandle
+        )
     }
 
-    suspend fun registerCloudUser(handle: String, name: String, publicKey: String): Boolean {
-        return cloudService?.registerUser(handle, name, publicKey) ?: false
+    suspend fun createGroupChat(
+        groupName: String,
+        memberHandles: List<String>,
+        adminHandle: String
+    ): Long {
+        val cleanAdmin = adminHandle.lowercase().replace("@", "").trim()
+        val allMembers = (memberHandles + cleanAdmin)
+            .map { it.lowercase().replace("@", "").trim() }
+            .distinct()
+            .filter { it.isNotEmpty() }
+
+        val cloudGroupId = cloudService?.createGroupInCloud(
+            groupName = groupName,
+            memberHandles = allMembers,
+            adminHandle = cleanAdmin
+        ) ?: ("grp_" + UUID.randomUUID().toString().take(8))
+
+        val groupConv = ConversationEntity(
+            peerId = "grp_$cloudGroupId",
+            peerName = groupName,
+            peerHandle = cloudGroupId,
+            avatarBgColorHex = "#E8DEF8",
+            avatarTextColorHex = "#1D192B",
+            lastMessage = "Group created with ${allMembers.size} members",
+            lastTimestamp = System.currentTimeMillis(),
+            unreadCount = 0,
+            isOnline = true,
+            isGroup = true,
+            groupMembers = allMembers.joinToString(","),
+            groupAdminHandle = cleanAdmin,
+            isEncrypted = true,
+            keyFingerprint = CryptoHelper.generateFingerprint(cloudGroupId),
+            cloudDocId = cloudGroupId
+        )
+
+        val convId = dao.insertConversation(groupConv)
+
+        // Add initial system message
+        dao.insertMessage(
+            MessageEntity(
+                conversationId = convId,
+                senderId = "system",
+                senderName = "System",
+                text = "🛡️ Group '$groupName' created. All communications are end-to-end encrypted.",
+                cipherText = "",
+                timestamp = System.currentTimeMillis(),
+                isMe = true,
+                status = MessageStatus.READ,
+                type = MessageType.TEXT
+            )
+        )
+
+        return convId
     }
 
     suspend fun receiveSimulatedReply(
@@ -119,6 +225,18 @@ class MessengerRepository(
         dao.insertMessage(message)
     }
 
+    suspend fun searchCloudUser(handle: String): CloudUser? {
+        return cloudService?.searchUserByHandle(handle)
+    }
+
+    suspend fun getRecentCloudUsers(): List<CloudUser> {
+        return cloudService?.getRecentRegisteredUsers() ?: emptyList()
+    }
+
+    suspend fun registerCloudUser(handle: String, name: String, publicKey: String): Boolean {
+        return cloudService?.registerUser(handle, name, publicKey) ?: false
+    }
+
     suspend fun createOrGetConversationForContact(contact: ContactEntity): Long {
         val existing = dao.getConversationByHandle(contact.handle)
         if (existing != null) {
@@ -130,7 +248,7 @@ class MessengerRepository(
             peerHandle = contact.handle,
             avatarBgColorHex = contact.avatarBgHex,
             avatarTextColorHex = contact.avatarTextHex,
-            lastMessage = "Started a new encrypted conversation",
+            lastMessage = "Encrypted conversation initialized",
             lastTimestamp = System.currentTimeMillis(),
             unreadCount = 0,
             isOnline = true,
@@ -140,8 +258,44 @@ class MessengerRepository(
         return dao.insertConversation(newConv)
     }
 
-    suspend fun markConversationRead(conversationId: Long) {
+    suspend fun createOrGetConversationForCloudUser(cloudUser: CloudUser): Long {
+        val existing = dao.getConversationByHandle(cloudUser.handle)
+        if (existing != null) {
+            return existing.id
+        }
+        val newConv = ConversationEntity(
+            peerId = "u_${cloudUser.handle.replace(".", "_")}",
+            peerName = cloudUser.displayName.ifBlank { "@${cloudUser.handle}" },
+            peerHandle = cloudUser.handle,
+            avatarBgColorHex = cloudUser.avatarBgHex,
+            avatarTextColorHex = cloudUser.avatarTextHex,
+            lastMessage = "Encrypted cloud conversation started",
+            lastTimestamp = System.currentTimeMillis(),
+            unreadCount = 0,
+            isOnline = cloudUser.isOnline,
+            isEncrypted = true,
+            keyFingerprint = CryptoHelper.generateFingerprint(cloudUser.handle)
+        )
+        // Also save to contacts
+        dao.insertContact(
+            ContactEntity(
+                handle = cloudUser.handle,
+                name = cloudUser.displayName.ifBlank { "@${cloudUser.handle}" },
+                avatarBgHex = cloudUser.avatarBgHex,
+                avatarTextHex = cloudUser.avatarTextHex,
+                publicKey = cloudUser.publicKey,
+                about = cloudUser.about
+            )
+        )
+        return dao.insertConversation(newConv)
+    }
+
+    suspend fun markConversationRead(conversationId: Long, myHandle: String = "") {
         dao.markConversationAsRead(conversationId)
+        val conv = dao.getConversationById(conversationId).firstOrNull()
+        if (conv != null && myHandle.isNotBlank()) {
+            cloudService?.markMessagesAsReadInCloud(conv.peerHandle, myHandle)
+        }
     }
 
     suspend fun setDisappearingTimer(conversationId: Long, timerSeconds: Long) {
@@ -158,7 +312,9 @@ class MessengerRepository(
     }
 
     suspend fun purgeExpiredMessages() {
-        dao.purgeExpiredMessages(System.currentTimeMillis())
+        val now = System.currentTimeMillis()
+        dao.purgeExpiredMessages(now)
+        cloudService?.purgeExpiredCloudMessages()
     }
 
     suspend fun addContact(contact: ContactEntity) {
@@ -201,5 +357,6 @@ class MessengerRepository(
         dao.wipeConversations()
         dao.wipeCalls()
         dao.wipeStatuses()
+        dao.wipeContacts()
     }
 }
