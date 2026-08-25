@@ -57,6 +57,26 @@ class MessengerRepository(
         return cloudService?.streamConversationMessages(myHandle, peerHandle, onMessagesReceived)
     }
 
+    fun getPinnedMessages(conversationId: Long): Flow<List<MessageEntity>> =
+        dao.getPinnedMessages(conversationId)
+
+    suspend fun togglePinMessage(messageId: Long, isPinned: Boolean) {
+        dao.updateMessagePinned(messageId, isPinned)
+        val msg = dao.getMessageById(messageId)
+        if (msg?.cloudMsgDocId != null) {
+            cloudService?.pinCloudMessage(msg.cloudMsgDocId, isPinned)
+        }
+    }
+
+    suspend fun editMessage(messageId: Long, newText: String, myHandle: String = "me") {
+        val cipher = CryptoHelper.encrypt(newText)
+        dao.updateMessageText(messageId, newText, cipher)
+        val msg = dao.getMessageById(messageId)
+        if (msg?.cloudMsgDocId != null) {
+            cloudService?.editCloudMessage(msg.cloudMsgDocId, cipher)
+        }
+    }
+
     suspend fun sendMessage(
         conversationId: Long,
         text: String,
@@ -67,6 +87,8 @@ class MessengerRepository(
         type: MessageType = MessageType.TEXT,
         mediaUrl: String? = null,
         voiceDurationSeconds: Int = 0,
+        fileName: String? = null,
+        fileSizeBytes: Long = 0L,
         myHandle: String = "me"
     ) {
         val now = System.currentTimeMillis()
@@ -91,7 +113,9 @@ class MessengerRepository(
             isDisappearing = isDisappearing || disappearingTimerSeconds > 0,
             expiresAtTimestamp = expiresAt,
             replyToId = replyToId,
-            replyToText = replyToText
+            replyToText = replyToText,
+            fileName = fileName,
+            fileSizeBytes = fileSizeBytes
         )
 
         dao.insertMessage(message)
@@ -100,6 +124,7 @@ class MessengerRepository(
         val preview = when (type) {
             MessageType.IMAGE -> "📷 Photo attachment"
             MessageType.VOICE -> "🎤 Voice message (${voiceDurationSeconds}s)"
+            MessageType.DOCUMENT -> "📁 ${fileName ?: "Document"}"
             else -> text
         }
 
@@ -130,9 +155,38 @@ class MessengerRepository(
                 isGroup = conv.isGroup,
                 groupId = conv.cloudDocId ?: if (conv.isGroup) conv.peerHandle else null,
                 groupName = if (conv.isGroup) conv.peerName else null,
-                groupMembers = groupMembersList
+                groupMembers = groupMembersList,
+                fileName = fileName,
+                fileSizeBytes = fileSizeBytes
             )
         }
+    }
+
+    suspend fun sendDocumentMessage(
+        conversationId: Long,
+        docUri: Uri,
+        fileName: String,
+        fileSizeBytes: Long,
+        isDisappearing: Boolean = false,
+        disappearingTimerSeconds: Long = 0,
+        myHandle: String = "me"
+    ) {
+        val conv = dao.getConversationById(conversationId).firstOrNull()
+        val convKey = conv?.peerHandle ?: conversationId.toString()
+
+        val mediaUrl = cloudService?.uploadChatDocument(docUri, convKey, fileName) ?: docUri.toString()
+
+        sendMessage(
+            conversationId = conversationId,
+            text = fileName,
+            isDisappearing = isDisappearing,
+            disappearingTimerSeconds = disappearingTimerSeconds,
+            type = MessageType.DOCUMENT,
+            mediaUrl = mediaUrl,
+            fileName = fileName,
+            fileSizeBytes = fileSizeBytes,
+            myHandle = myHandle
+        )
     }
 
     suspend fun sendImageMessage(

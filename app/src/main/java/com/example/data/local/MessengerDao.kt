@@ -51,6 +51,21 @@ interface MessengerDao {
     @Query("UPDATE messages SET reaction = :reaction WHERE cloudMsgDocId = :cloudDocId")
     suspend fun updateMessageReactionByCloudDocId(cloudDocId: String, reaction: String?)
 
+    @Query("UPDATE messages SET isPinned = :isPinned WHERE id = :id")
+    suspend fun updateMessagePinned(id: Long, isPinned: Boolean)
+
+    @Query("UPDATE messages SET isPinned = :isPinned WHERE cloudMsgDocId = :cloudDocId")
+    suspend fun updateMessagePinnedByCloudDocId(cloudDocId: String, isPinned: Boolean)
+
+    @Query("SELECT * FROM messages WHERE conversationId = :conversationId AND isPinned = 1 ORDER BY timestamp DESC")
+    fun getPinnedMessages(conversationId: Long): Flow<List<MessageEntity>>
+
+    @Query("UPDATE messages SET text = :newText, cipherText = :newCipherText, isEdited = 1 WHERE id = :id")
+    suspend fun updateMessageText(id: Long, newText: String, newCipherText: String = "")
+
+    @Query("UPDATE messages SET text = :newText, cipherText = :newCipherText, isEdited = 1 WHERE cloudMsgDocId = :cloudDocId")
+    suspend fun updateMessageTextByCloudDocId(cloudDocId: String, newText: String, newCipherText: String = "")
+
     @Query("SELECT * FROM messages WHERE cloudMsgDocId = :cloudDocId LIMIT 1")
     suspend fun getMessageByCloudDocId(cloudDocId: String): MessageEntity?
 

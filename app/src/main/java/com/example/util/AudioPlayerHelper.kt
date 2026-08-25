@@ -1,4 +1,4 @@
-﻿package com.example.util
+package com.example.util
 
 import android.content.Context
 import android.media.AudioAttributes
@@ -14,7 +14,8 @@ data class AudioPlaybackState(
     val isPlaying: Boolean = false,
     val currentPositionMs: Int = 0,
     val durationMs: Int = 0,
-    val activeMediaUrl: String? = null
+    val activeMediaUrl: String? = null,
+    val playbackSpeed: Float = 1.0f
 )
 
 class AudioPlayerHelper(private val context: Context) {
@@ -56,9 +57,16 @@ class AudioPlayerHelper(private val context: Context) {
                 }
 
                 setOnPreparedListener { mp ->
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                        try {
+                            val params = mp.playbackParams
+                            params.speed = _playbackState.value.playbackSpeed
+                            mp.playbackParams = params
+                        } catch (_: Exception) {}
+                    }
                     mp.start()
                     val dur = mp.duration
-                    _playbackState.value = AudioPlaybackState(
+                    _playbackState.value = _playbackState.value.copy(
                         isPlaying = true,
                         currentPositionMs = 0,
                         durationMs = if (dur > 0) dur else 1000,
@@ -69,7 +77,7 @@ class AudioPlayerHelper(private val context: Context) {
 
                 setOnCompletionListener {
                     stopProgressTracker()
-                    _playbackState.value = AudioPlaybackState(
+                    _playbackState.value = _playbackState.value.copy(
                         isPlaying = false,
                         currentPositionMs = 0,
                         durationMs = it.duration,
@@ -125,6 +133,32 @@ class AudioPlayerHelper(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error seeking audio: ${e.message}")
         }
+    }
+
+    fun setSpeed(speed: Float) {
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                mediaPlayer?.let { mp ->
+                    val params = mp.playbackParams
+                    params.speed = speed
+                    mp.playbackParams = params
+                }
+            }
+            _playbackState.value = _playbackState.value.copy(playbackSpeed = speed)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting speed: ${e.message}")
+        }
+    }
+
+    fun cyclePlaybackSpeed(): Float {
+        val current = _playbackState.value.playbackSpeed
+        val nextSpeed = when {
+            current < 1.25f -> 1.5f
+            current < 1.75f -> 2.0f
+            else -> 1.0f
+        }
+        setSpeed(nextSpeed)
+        return nextSpeed
     }
 
     fun stopAudio() {

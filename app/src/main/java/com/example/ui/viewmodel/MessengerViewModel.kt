@@ -57,6 +57,7 @@ data class UiState(
     val preventScreenshots: Boolean = false,
     val defaultDisappearingSeconds: Long = 0,
     val replyingToMessage: MessageEntity? = null,
+    val editingMessage: MessageEntity? = null,
     val isRecordingVoice: Boolean = false,
     val recordingSeconds: Int = 0,
     val recordingAmplitude: Int = 0,
@@ -658,6 +659,61 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
                 myHandle = currentHandle
             )
         }
+    }
+
+    fun sendDocument(
+        conversationId: Long,
+        docUri: Uri,
+        fileName: String,
+        fileSizeBytes: Long,
+        isDisappearing: Boolean = false,
+        disappearingTimerSeconds: Long = 0
+    ) {
+        HapticHelper.playMessageSentHaptic(getApplication())
+        val currentHandle = _uiState.value.myHandle
+        viewModelScope.launch {
+            repository.sendDocumentMessage(
+                conversationId = conversationId,
+                docUri = docUri,
+                fileName = fileName,
+                fileSizeBytes = fileSizeBytes,
+                isDisappearing = isDisappearing || disappearingTimerSeconds > 0,
+                disappearingTimerSeconds = disappearingTimerSeconds,
+                myHandle = currentHandle
+            )
+        }
+    }
+
+    fun startEditingMessage(message: MessageEntity) {
+        _uiState.update { it.copy(editingMessage = message, replyingToMessage = null) }
+    }
+
+    fun cancelEditingMessage() {
+        _uiState.update { it.copy(editingMessage = null) }
+    }
+
+    fun submitEditedMessage(messageId: Long, newText: String) {
+        if (newText.isBlank()) return
+        HapticHelper.playMessageSentHaptic(getApplication())
+        val currentHandle = _uiState.value.myHandle
+        viewModelScope.launch {
+            repository.editMessage(messageId, newText.trim(), currentHandle)
+            _uiState.update { it.copy(editingMessage = null) }
+        }
+    }
+
+    fun togglePinMessage(messageId: Long, isPinned: Boolean) {
+        viewModelScope.launch {
+            repository.togglePinMessage(messageId, !isPinned)
+        }
+    }
+
+    fun cycleAudioPlaybackSpeed() {
+        audioPlayerHelper.cyclePlaybackSpeed()
+    }
+
+    fun seekAudio(positionMs: Int) {
+        audioPlayerHelper.seekTo(positionMs)
     }
 
     fun createGroupChat(groupName: String, memberHandles: List<String>) {

@@ -332,6 +332,10 @@ class FirebaseCloudService(
                             val groupName = doc.getString("groupName")
                             val groupMembers = (doc.get("groupMembers") as? List<*>)?.filterIsInstance<String>() ?: emptyList()
                             val reaction = doc.getString("reaction")
+                            val isPinned = doc.getBoolean("isPinned") ?: false
+                            val isEdited = doc.getBoolean("isEdited") ?: false
+                            val fileName = doc.getString("fileName")
+                            val fileSizeBytes = doc.getLong("fileSizeBytes") ?: 0L
                             val docId = doc.id
 
                             // Process message in background
@@ -351,6 +355,10 @@ class FirebaseCloudService(
                                     groupName = groupName,
                                     groupMembers = groupMembers,
                                     reaction = reaction,
+                                    isPinned = isPinned,
+                                    isEdited = isEdited,
+                                    fileName = fileName,
+                                    fileSizeBytes = fileSizeBytes,
                                     cloudDocId = docId
                                 )
 
@@ -384,13 +392,25 @@ class FirebaseCloudService(
         groupName: String? = null,
         groupMembers: List<String> = emptyList(),
         reaction: String? = null,
+        isPinned: Boolean = false,
+        isEdited: Boolean = false,
+        fileName: String? = null,
+        fileSizeBytes: Long = 0L,
         cloudDocId: String? = null
     ) {
+        val decryptedText = if (type == MessageType.TEXT && cipherText.isNotEmpty()) CryptoHelper.decrypt(cipherText) else cipherText
+
         if (cloudDocId != null) {
             val existing = dao.getMessageByCloudDocId(cloudDocId)
             if (existing != null) {
                 if (existing.reaction != reaction) {
                     dao.updateMessageReaction(existing.id, reaction)
+                }
+                if (existing.isPinned != isPinned) {
+                    dao.updateMessagePinned(existing.id, isPinned)
+                }
+                if (existing.isEdited != isEdited || (isEdited && existing.cipherText != cipherText)) {
+                    dao.updateMessageText(existing.id, decryptedText, cipherText)
                 }
                 return
             }
@@ -403,7 +423,8 @@ class FirebaseCloudService(
         val preview = when (type) {
             MessageType.IMAGE -> "📷 Photo attachment"
             MessageType.VOICE -> "🎤 Voice note (${voiceDuration}s)"
-            else -> if (cipherText.isNotEmpty()) CryptoHelper.decrypt(cipherText) else "Encrypted message"
+            MessageType.DOCUMENT -> "📁 ${fileName ?: "Document"}"
+            else -> if (cipherText.isNotEmpty()) decryptedText else "Encrypted message"
         }
 
         if (conv == null) {
@@ -438,14 +459,13 @@ class FirebaseCloudService(
             )
         }
 
-        val decrypted = if (type == MessageType.TEXT && cipherText.isNotEmpty()) CryptoHelper.decrypt(cipherText) else preview
         val computedExpiresAt = expiresAt ?: if (disappearingSeconds > 0) timestamp + (disappearingSeconds * 1000L) else null
 
         val message = MessageEntity(
             conversationId = conversationId,
             senderId = senderHandle,
             senderName = "@$senderHandle",
-            text = decrypted,
+            text = if (type == MessageType.DOCUMENT) (fileName ?: "Document") else decryptedText,
             cipherText = cipherText,
             timestamp = timestamp,
             isMe = false,
@@ -457,6 +477,10 @@ class FirebaseCloudService(
             expiresAtTimestamp = computedExpiresAt,
             replyToText = replyToText,
             reaction = reaction,
+            isPinned = isPinned,
+            isEdited = isEdited,
+            fileName = fileName,
+            fileSizeBytes = fileSizeBytes,
             cloudMsgDocId = cloudDocId
         )
 
@@ -478,7 +502,11 @@ class FirebaseCloudService(
         isGroup: Boolean = false,
         groupId: String? = null,
         groupName: String? = null,
-        groupMembers: List<String> = emptyList()
+        groupMembers: List<String> = emptyList(),
+        fileName: String? = null,
+        fileSizeBytes: Long = 0L,
+        isPinned: Boolean = false,
+        isEdited: Boolean = false
     ): String? {
         val fs = firestore ?: return null
         val cleanSender = senderHandle.lowercase().replace("@", "").trim()
@@ -512,6 +540,10 @@ class FirebaseCloudService(
                 "groupId" to (groupId ?: ""),
                 "groupName" to (groupName ?: ""),
                 "groupMembers" to groupMembers,
+                "fileName" to (fileName ?: ""),
+                "fileSizeBytes" to fileSizeBytes,
+                "isPinned" to isPinned,
+                "isEdited" to isEdited,
                 "status" to "SENT"
             )
 
@@ -826,6 +858,59 @@ class FirebaseCloudService(
         } catch (e: Exception) {
             Log.e(TAG, "Local image save fallback error: ${e.message}")
             imageUri.toString()
+        }
+    }
+
+    suspend fun uploadChatDocument(
+        docUri: Uri,
+        conversationId: String,
+        fileName: String
+    ): String? {
+        val st = storage
+        if (st != null) {
+            try {
+                val docRef = st.reference.child("chat_documents/$conversationId/${UUID.randomUUID()}_$fileName")
+                context.contentResolver.openInputStream(docUri)?.use { stream ->
+                    docRef.putStream(stream).await()
+                }
+                return docRef.downloadUrl.await().toString()
+            } catch (e: Exception) {
+                Log.w(TAG, "Document upload failed: ${e.message}")
+            }
+        }
+        return try {
+            val localFile = File(context.filesDir, "doc_${UUID.randomUUID()}_$fileName")
+            context.contentResolver.openInputStream(docUri)?.use { input ->
+                FileOutputStream(localFile).use { output -> input.copyTo(output) }
+            }
+            Uri.fromFile(localFile).toString()
+        } catch (e: Exception) {
+            Log.e(TAG, "Local document save fallback error: ${e.message}")
+            docUri.toString()
+        }
+    }
+
+    suspend fun editCloudMessage(cloudDocId: String, newCipherText: String) {
+        val fs = firestore ?: return
+        try {
+            fs.collection("messages").document(cloudDocId).update(
+                mapOf(
+                    "cipherText" to newCipherText,
+                    "isEdited" to true,
+                    "editTimestamp" to FieldValue.serverTimestamp()
+                )
+            ).await()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to edit cloud message: ${e.message}")
+        }
+    }
+
+    suspend fun pinCloudMessage(cloudDocId: String, isPinned: Boolean) {
+        val fs = firestore ?: return
+        try {
+            fs.collection("messages").document(cloudDocId).update("isPinned", isPinned).await()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to pin cloud message: ${e.message}")
         }
     }
 

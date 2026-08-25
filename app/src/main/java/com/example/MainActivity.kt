@@ -201,6 +201,16 @@ class MainActivity : ComponentActivity() {
                                             disappearingTimerSeconds = timer
                                         )
                                     },
+                                    onSendDocument = { uri, fileName, size, isDisappearing, timer ->
+                                        viewModel.sendDocument(
+                                            conversationId = convId,
+                                            docUri = uri,
+                                            fileName = fileName,
+                                            fileSizeBytes = size,
+                                            isDisappearing = isDisappearing,
+                                            disappearingTimerSeconds = timer
+                                        )
+                                    },
                                     onStartVoiceRecording = { viewModel.startVoiceRecording() },
                                     onCancelVoiceRecording = { viewModel.cancelVoiceRecording() },
                                     onFinishVoiceRecording = { duration, isDisappearing, timer ->
@@ -214,12 +224,18 @@ class MainActivity : ComponentActivity() {
                                     onDeleteConversation = { id -> viewModel.deleteConversation(id) },
                                     onDeleteMessage = { msg, deleteForEveryone -> viewModel.deleteMessage(msg.id, deleteForEveryone) },
                                     onSetReplyTo = { msg -> viewModel.setReplyingTo(msg) },
+                                    onStartEditingMessage = { msg -> viewModel.startEditingMessage(msg) },
+                                    onCancelEditingMessage = { viewModel.cancelEditingMessage() },
+                                    onSubmitEditedMessage = { id, newText -> viewModel.submitEditedMessage(id, newText) },
+                                    onTogglePinMessage = { msg -> viewModel.togglePinMessage(msg.id, msg.isPinned) },
                                     onOpenFingerprint = { viewModel.setKeyFingerprintDialogOpen(true) },
                                     onReactToMessage = { msg, reaction -> viewModel.reactToMessage(msg, reaction) },
                                     onTypingChanged = { isTyping -> viewModel.sendTyping(convId, isTyping) },
                                     onForwardMessage = { msg -> viewModel.setForwardDialogOpen(true, msg) },
                                     onBlockUser = { handle -> viewModel.blockUser(handle) },
-                                    onTogglePlayVoiceNote = { url -> viewModel.togglePlayVoiceNote(url) }
+                                    onTogglePlayVoiceNote = { url -> viewModel.togglePlayVoiceNote(url) },
+                                    onCycleAudioSpeed = { viewModel.cycleAudioPlaybackSpeed() },
+                                    onSeekAudio = { pos -> viewModel.seekAudio(pos) }
                                 )
 
                                 // Safety number fingerprint dialog

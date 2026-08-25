@@ -18,6 +18,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -91,6 +92,45 @@ fun formatMessageDateHeader(timestamp: Long): String {
     }
 }
 
+fun formatFileSize(bytes: Long): String {
+    if (bytes <= 0) return "0 B"
+    val units = arrayOf("B", "KB", "MB", "GB")
+    val digitGroups = (kotlin.math.log10(bytes.toDouble()) / kotlin.math.log10(1024.0)).toInt().coerceIn(0, units.size - 1)
+    return String.format(Locale.getDefault(), "%.1f %s", bytes / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups])
+}
+
+fun getFileName(context: Context, uri: Uri): String? {
+    var name: String? = null
+    if (uri.scheme == "content") {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (index != -1) name = cursor.getString(index)
+            }
+        }
+    }
+    if (name == null) {
+        name = uri.path?.let { path ->
+            val cut = path.lastIndexOf('/')
+            if (cut != -1) path.substring(cut + 1) else path
+        }
+    }
+    return name
+}
+
+fun getFileSize(context: Context, uri: Uri): Long {
+    var size = 0L
+    if (uri.scheme == "content") {
+        context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val index = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                if (index != -1) size = cursor.getLong(index)
+            }
+        }
+    }
+    return size
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ConversationScreen(
@@ -100,6 +140,7 @@ fun ConversationScreen(
     onBack: () -> Unit,
     onSendMessage: (text: String, isDisappearing: Boolean, disappearingSeconds: Long) -> Unit,
     onSendImage: (uri: Uri, isDisappearing: Boolean, disappearingSeconds: Long) -> Unit = { _, _, _ -> },
+    onSendDocument: (uri: Uri, fileName: String, size: Long, isDisappearing: Boolean, disappearingSeconds: Long) -> Unit = { _, _, _, _, _ -> },
     onStartVoiceRecording: () -> Unit,
     onCancelVoiceRecording: () -> Unit,
     onFinishVoiceRecording: (durationSeconds: Long, isDisappearing: Boolean, disappearingSeconds: Long) -> Unit,
@@ -109,12 +150,18 @@ fun ConversationScreen(
     onDeleteConversation: (Long) -> Unit,
     onDeleteMessage: (MessageEntity, Boolean) -> Unit = { _, _ -> },
     onSetReplyTo: (MessageEntity?) -> Unit,
+    onStartEditingMessage: (MessageEntity) -> Unit = {},
+    onCancelEditingMessage: () -> Unit = {},
+    onSubmitEditedMessage: (Long, String) -> Unit = { _, _ -> },
+    onTogglePinMessage: (MessageEntity) -> Unit = {},
     onOpenFingerprint: () -> Unit,
     onReactToMessage: (MessageEntity, String?) -> Unit = { _, _ -> },
     onTypingChanged: (Boolean) -> Unit = {},
     onForwardMessage: (MessageEntity) -> Unit = {},
     onBlockUser: (String) -> Unit = {},
     onTogglePlayVoiceNote: (String?) -> Unit = {},
+    onCycleAudioSpeed: () -> Unit = {},
+    onSeekAudio: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val MAX_CHAR_LIMIT = 500
@@ -122,10 +169,12 @@ fun ConversationScreen(
     var isSearchOpen by remember { mutableStateOf(false) }
     var inChatSearchQuery by remember { mutableStateOf("") }
     var currentSearchMatchIndex by remember { mutableIntStateOf(0) }
+    var currentPinnedIndex by remember { mutableIntStateOf(0) }
     var showMenu by remember { mutableStateOf(false) }
     var showTimerDialog by remember { mutableStateOf(false) }
     var showWallpaperDialog by remember { mutableStateOf(false) }
     var showAttachmentSheet by remember { mutableStateOf(false) }
+    var showSharedMediaSheet by remember { mutableStateOf(false) }
     var selectedWallpaper by remember { mutableStateOf(ChatWallpaper.MINIMAL) }
     var selectedMessageForCipher by remember { mutableStateOf<MessageEntity?>(null) }
     var selectedMessageForReaction by remember { mutableStateOf<MessageEntity?>(null) }
@@ -134,6 +183,8 @@ fun ConversationScreen(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
     val haptic = LocalHapticFeedback.current
+
+    val pinnedMessages = remember(messages) { messages.filter { it.isPinned } }
 
     val matchedMessageIndices = remember(messages, inChatSearchQuery) {
         if (inChatSearchQuery.isBlank()) emptyList<Int>()
@@ -176,6 +227,30 @@ fun ConversationScreen(
                 currentDisappearingTimer > 0,
                 currentDisappearingTimer
             )
+        }
+    }
+
+    // Document / File picker
+    val documentPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val fileName = getFileName(context, uri) ?: "Document"
+            val fileSize = getFileSize(context, uri)
+            onSendDocument(
+                uri,
+                fileName,
+                fileSize,
+                currentDisappearingTimer > 0,
+                currentDisappearingTimer
+            )
+        }
+    }
+
+    // Sync input text when entering edit mode
+    LaunchedEffect(uiState.editingMessage) {
+        if (uiState.editingMessage != null) {
+            inputText = uiState.editingMessage.text
         }
     }
 
@@ -437,6 +512,17 @@ fun ConversationScreen(
                                     }
                                 )
                             DropdownMenuItem(
+                                text = { Text("Shared Media & Files") },
+                                onClick = {
+                                    showMenu = false
+                                    showSharedMediaSheet = true
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.PermMedia, contentDescription = null)
+                                }
+                            )
+
+                            DropdownMenuItem(
                                 text = { Text("Encryption Fingerprint") },
                                 onClick = {
                                     showMenu = false
@@ -520,6 +606,80 @@ fun ConversationScreen(
             Column(
                 modifier = Modifier.fillMaxSize()
             ) {
+                // Pinned Messages Banner
+                if (pinnedMessages.isNotEmpty()) {
+                    val safePinIdx = currentPinnedIndex.coerceIn(0, pinnedMessages.size - 1)
+                    val activePin = pinnedMessages[safePinIdx]
+
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                currentPinnedIndex = (currentPinnedIndex + 1) % pinnedMessages.size
+                                val targetMsg = pinnedMessages[currentPinnedIndex]
+                                val idx = messages.indexOfFirst { it.id == targetMsg.id }
+                                if (idx != -1) {
+                                    scope.launch { listState.animateScrollToItem(idx) }
+                                }
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(3.dp)
+                                        .height(28.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(MaterialTheme.colorScheme.primary)
+                                )
+                                Column {
+                                    Text(
+                                        text = if (pinnedMessages.size > 1) "Pinned Message ${safePinIdx + 1}/${pinnedMessages.size}" else "Pinned Message",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = when (activePin.type) {
+                                            MessageType.IMAGE -> "📷 Photo"
+                                            MessageType.VOICE -> "🎤 Voice Note"
+                                            MessageType.DOCUMENT -> "📁 ${activePin.fileName ?: "Document"}"
+                                            else -> activePin.text
+                                        },
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+
+                            IconButton(
+                                onClick = { onTogglePinMessage(activePin) },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Unpin message",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Messages LazyColumn with generous breathing space
                 LazyColumn(
                     state = listState,
@@ -632,7 +792,9 @@ fun ConversationScreen(
                                     onInspectCipher = { selectedMessageForCipher = message },
                                     onLongClickReaction = { selectedMessageForReaction = message },
                                     onImageClick = { previewImageUrl = it },
-                                    onTogglePlayVoiceNote = onTogglePlayVoiceNote
+                                    onTogglePlayVoiceNote = onTogglePlayVoiceNote,
+                                    onCycleAudioSpeed = onCycleAudioSpeed,
+                                    onSeekAudio = onSeekAudio
                                 )
                             }
                         }
@@ -641,6 +803,67 @@ fun ConversationScreen(
                     if (uiState.isPeerTyping) {
                         item {
                             TypingIndicatorBubble(conversation.peerName)
+                        }
+                    }
+                }
+
+                // Active Reply Banner if selected
+                // Active Edit Banner if editing
+                uiState.editingMessage?.let { editMsg ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = "Editing Message",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = editMsg.text,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1
+                                    )
+                                }
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    onCancelEditingMessage()
+                                    inputText = ""
+                                },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Cancel edit",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
@@ -871,8 +1094,30 @@ fun ConversationScreen(
                                     maxLines = 4
                                 )
 
-                                // Action Button: Voice note or Send
-                                if (inputText.isBlank()) {
+                                // Action Button: Save Edit, Voice note or Send
+                                if (uiState.editingMessage != null) {
+                                    IconButton(
+                                        onClick = {
+                                            val text = inputText.trim()
+                                            if (text.isNotEmpty()) {
+                                                onSubmitEditedMessage(uiState.editingMessage.id, text)
+                                                inputText = ""
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .testTag("btn_save_edit")
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.primary)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Save edit",
+                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                } else if (inputText.isBlank()) {
                                     IconButton(
                                         onClick = onStartVoiceRecording,
                                         modifier = Modifier
@@ -1000,21 +1245,21 @@ fun ConversationScreen(
                         }
                     )
                     AttachmentOption(
+                        icon = Icons.Default.Description,
+                        label = "Document / File",
+                        bgColor = MaterialTheme.colorScheme.tertiaryContainer,
+                        onClick = {
+                            showAttachmentSheet = false
+                            documentPickerLauncher.launch("*/*")
+                        }
+                    )
+                    AttachmentOption(
                         icon = Icons.Default.CameraAlt,
                         label = "View-Once 5s",
                         bgColor = MaterialTheme.colorScheme.secondaryContainer,
                         onClick = {
                             showAttachmentSheet = false
                             imagePickerLauncher.launch("image/*")
-                        }
-                    )
-                    AttachmentOption(
-                        icon = Icons.Default.Timer,
-                        label = "1m Burn",
-                        bgColor = MaterialTheme.colorScheme.tertiaryContainer,
-                        onClick = {
-                            showAttachmentSheet = false
-                            onSendMessage("⏳ [Burn-on-Read: 1m countdown]", true, 60L)
                         }
                     )
                 }
@@ -1198,6 +1443,14 @@ fun ConversationScreen(
                 selectedMessageForReaction = null
                 onSetReplyTo(msg)
             },
+            onEdit = {
+                selectedMessageForReaction = null
+                onStartEditingMessage(msg)
+            },
+            onTogglePin = {
+                selectedMessageForReaction = null
+                onTogglePinMessage(msg)
+            },
             onCopyText = {
                 clipboardManager.setText(AnnotatedString(msg.text))
                 Toast.makeText(context, "Message copied to clipboard", Toast.LENGTH_SHORT).show()
@@ -1212,6 +1465,18 @@ fun ConversationScreen(
                 messageToDelete = msg
             },
             onDismiss = { selectedMessageForReaction = null }
+        )
+    }
+
+    // Shared Media & Files Sheet
+    if (showSharedMediaSheet) {
+        SharedMediaSheet(
+            messages = messages,
+            onDismiss = { showSharedMediaSheet = false },
+            onImageClick = { url ->
+                showSharedMediaSheet = false
+                previewImageUrl = url
+            }
         )
     }
 
@@ -1368,7 +1633,9 @@ fun SwipeableMessageBubble(
     onInspectCipher: () -> Unit,
     onLongClickReaction: () -> Unit,
     onImageClick: (String) -> Unit,
-    onTogglePlayVoiceNote: (String?) -> Unit
+    onTogglePlayVoiceNote: (String?) -> Unit,
+    onCycleAudioSpeed: () -> Unit = {},
+    onSeekAudio: (Int) -> Unit = {}
 ) {
     var offsetX by remember { mutableStateOf(0f) }
     var showHeartPop by remember { mutableStateOf(false) }
@@ -1467,7 +1734,9 @@ fun SwipeableMessageBubble(
                     onDoubleTapHeart()
                 },
                 onImageClick = onImageClick,
-                onTogglePlayVoiceNote = onTogglePlayVoiceNote
+                onTogglePlayVoiceNote = onTogglePlayVoiceNote,
+                onCycleAudioSpeed = onCycleAudioSpeed,
+                onSeekAudio = onSeekAudio
             )
 
             // Animated Popping Heart on Double Tap
@@ -1496,9 +1765,12 @@ fun MessageBubble(
     onLongClickReaction: () -> Unit,
     onDoubleTap: () -> Unit,
     onImageClick: (String) -> Unit,
-    onTogglePlayVoiceNote: (String?) -> Unit
+    onTogglePlayVoiceNote: (String?) -> Unit,
+    onCycleAudioSpeed: () -> Unit = {},
+    onSeekAudio: (Int) -> Unit = {}
 ) {
     val isMe = message.isMe
+    val context = LocalContext.current
     val bubbleColor = if (isMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
     val textColor = if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
     val alignment = if (isMe) Alignment.End else Alignment.Start
@@ -1593,6 +1865,70 @@ fun MessageBubble(
                     Spacer(modifier = Modifier.height(4.dp))
                 }
 
+                // Document Message View
+                if (message.type == MessageType.DOCUMENT) {
+                    Surface(
+                        color = if (isMe) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clickable {
+                                if (!message.mediaUrl.isNullOrEmpty()) {
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                                            val uri = if (message.mediaUrl.startsWith("content://") || message.mediaUrl.startsWith("http://") || message.mediaUrl.startsWith("https://")) {
+                                                Uri.parse(message.mediaUrl)
+                                            } else {
+                                                Uri.fromFile(java.io.File(message.mediaUrl))
+                                            }
+                                            setDataAndType(uri, "*/*")
+                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                        }
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "No app available to open this file", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isMe) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.primaryContainer,
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Description,
+                                        contentDescription = null,
+                                        tint = if (isMe) textColor else MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = message.fileName ?: message.text,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = textColor,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = if (message.fileSizeBytes > 0) formatFileSize(message.fileSizeBytes) else "Document",
+                                    fontSize = 11.sp,
+                                    color = textColor.copy(alpha = 0.75f)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Voice Message View
                 if (message.type == MessageType.VOICE) {
                     val isCurrentPlaying = uiState.audioPlaybackState.isPlaying && 
@@ -1604,7 +1940,7 @@ fun MessageBubble(
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         modifier = Modifier.padding(vertical = 4.dp)
                     ) {
                         IconButton(
@@ -1621,10 +1957,12 @@ fun MessageBubble(
                                 modifier = Modifier.size(20.dp)
                             )
                         }
+
+                        // Interactive Waveform Seek Bar
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(2.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable { onTogglePlayVoiceNote(message.mediaUrl ?: message.text) }
+                            modifier = Modifier
                         ) {
                             val barHeights = listOf(10, 18, 14, 24, 18, 12, 22, 16, 8, 14, 20, 12, 16, 22, 10)
                             barHeights.forEachIndexed { index, height ->
@@ -1638,9 +1976,37 @@ fun MessageBubble(
                                         .background(
                                             if (isPlayed) textColor else textColor.copy(alpha = 0.4f)
                                         )
+                                        .clickable {
+                                            if (isCurrentPlaying && uiState.audioPlaybackState.durationMs > 0) {
+                                                val targetMs = (barFraction * uiState.audioPlaybackState.durationMs).toInt()
+                                                onSeekAudio(targetMs)
+                                            }
+                                        }
                                 )
                             }
                         }
+
+                        // Playback Speed Button (1X / 1.5X / 2X)
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = textColor.copy(alpha = 0.15f),
+                            modifier = Modifier
+                                .clickable { onCycleAudioSpeed() }
+                                .padding(horizontal = 2.dp)
+                        ) {
+                            Text(
+                                text = when {
+                                    uiState.audioPlaybackState.playbackSpeed >= 1.9f -> "2X"
+                                    uiState.audioPlaybackState.playbackSpeed >= 1.4f -> "1.5X"
+                                    else -> "1X"
+                                },
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = textColor,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                            )
+                        }
+
                         Text(
                             text = if (isCurrentPlaying && uiState.audioPlaybackState.currentPositionMs > 0) {
                                 val sec = (uiState.audioPlaybackState.currentPositionMs / 1000)
@@ -1653,7 +2019,7 @@ fun MessageBubble(
                             fontWeight = FontWeight.Medium
                         )
                     }
-                } else if (message.type != MessageType.IMAGE) {
+                } else if (message.type != MessageType.IMAGE && message.type != MessageType.DOCUMENT) {
                     if (highlightQuery.isNotBlank() && message.text.contains(highlightQuery, ignoreCase = true)) {
                         val annotatedText = buildAnnotatedString {
                             val text = message.text
@@ -1695,7 +2061,7 @@ fun MessageBubble(
                     }
                 }
 
-                // Metadata: Time, Disappearing & Read status
+                // Metadata: Time, Pin, Edited, Disappearing & Read status
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1703,6 +2069,26 @@ fun MessageBubble(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    if (message.isPinned) {
+                        Icon(
+                            imageVector = Icons.Default.PushPin,
+                            contentDescription = "Pinned",
+                            tint = textColor.copy(alpha = 0.75f),
+                            modifier = Modifier
+                                .size(11.dp)
+                                .padding(end = 3.dp)
+                        )
+                    }
+
+                    if (message.isEdited) {
+                        Text(
+                            text = "(edited)",
+                            fontSize = 9.sp,
+                            color = textColor.copy(alpha = 0.65f),
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
+                    }
+
                     if (message.isDisappearing) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -1807,6 +2193,8 @@ fun MessageActionsDialog(
     onSelectEmoji: (String) -> Unit,
     onForward: () -> Unit,
     onReply: () -> Unit,
+    onEdit: () -> Unit = {},
+    onTogglePin: () -> Unit = {},
     onCopyText: () -> Unit,
     onInspectCipher: () -> Unit,
     onDelete: () -> Unit,
@@ -1814,6 +2202,7 @@ fun MessageActionsDialog(
 ) {
     val emojis = listOf("❤️", "🔥", "👍", "😂", "😮", "🎉", "🙏")
     val haptic = LocalHapticFeedback.current
+    val canEdit = message.isMe && message.type == MessageType.TEXT && (System.currentTimeMillis() - message.timestamp) <= 15 * 60 * 1000L
 
     Dialog(onDismissRequest = onDismiss) {
         Column(
@@ -1884,6 +2273,46 @@ fun MessageActionsDialog(
                         }
                     }
 
+                    if (canEdit) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onEdit()
+                                },
+                            color = Color.Transparent
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(14.dp))
+                                Text("Edit Message", fontWeight = FontWeight.Medium, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                    }
+
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onTogglePin()
+                            },
+                        color = Color.Transparent
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.PushPin, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Text(if (message.isPinned) "Unpin Message" else "Pin Message", fontWeight = FontWeight.Medium, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+                        }
+                    }
+
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1944,6 +2373,192 @@ fun MessageActionsDialog(
                             Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(14.dp))
                             Text("Delete", fontWeight = FontWeight.Medium, fontSize = 14.sp, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SharedMediaSheet(
+    messages: List<MessageEntity>,
+    onDismiss: () -> Unit,
+    onImageClick: (String) -> Unit
+) {
+    var selectedTab by remember { mutableIntStateOf(0) }
+    val photos = remember(messages) { messages.filter { it.type == MessageType.IMAGE && !it.mediaUrl.isNullOrEmpty() } }
+    val docs = remember(messages) { messages.filter { it.type == MessageType.DOCUMENT } }
+    val audios = remember(messages) { messages.filter { it.type == MessageType.VOICE } }
+    val context = LocalContext.current
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 32.dp)
+        ) {
+            Text(
+                text = "Shared Media & Vault",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+            )
+
+            PrimaryTabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = Color.Transparent,
+                divider = {}
+            ) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text("Photos (${photos.size})") }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text("Files (${docs.size})") }
+                )
+                Tab(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
+                    text = { Text("Voice (${audios.size})") }
+                )
+            }
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+            when (selectedTab) {
+                0 -> {
+                    if (photos.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
+                            Text("No photos shared in this chat", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(3),
+                            contentPadding = PaddingValues(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.heightIn(max = 360.dp)
+                        ) {
+                            items(photos) { msg ->
+                                AsyncImage(
+                                    model = ImageRequest.Builder(context).data(msg.mediaUrl).crossfade(true).build(),
+                                    contentDescription = "Shared photo",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { onImageClick(msg.mediaUrl ?: "") }
+                                )
+                            }
+                        }
+                    }
+                }
+                1 -> {
+                    if (docs.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
+                            Text("No documents or files shared", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        LazyColumn(
+                            contentPadding = PaddingValues(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.heightIn(max = 360.dp)
+                        ) {
+                            items(docs) { msg ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            if (!msg.mediaUrl.isNullOrEmpty()) {
+                                                try {
+                                                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                                                        val uri = if (msg.mediaUrl.startsWith("content://") || msg.mediaUrl.startsWith("http://") || msg.mediaUrl.startsWith("https://")) {
+                                                            Uri.parse(msg.mediaUrl)
+                                                        } else {
+                                                            Uri.fromFile(java.io.File(msg.mediaUrl))
+                                                        }
+                                                        setDataAndType(uri, "*/*")
+                                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                                    }
+                                                    context.startActivity(intent)
+                                                } catch (_: Exception) {
+                                                    Toast.makeText(context, "No viewer app found", Toast.LENGTH_SHORT).show()
+                                                }
+                                            }
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                            modifier = Modifier.size(40.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Default.Description, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                            }
+                                        }
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(msg.fileName ?: msg.text, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1)
+                                            Text(
+                                                text = "${formatFileSize(msg.fileSizeBytes)} • ${SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(msg.timestamp))}",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                2 -> {
+                    if (audios.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
+                            Text("No voice messages shared", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        LazyColumn(
+                            contentPadding = PaddingValues(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.heightIn(max = 360.dp)
+                        ) {
+                            items(audios) { msg ->
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Icon(Icons.Default.Mic, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text("Voice Note (${msg.voiceDurationSeconds}s)", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                            Text(
+                                                text = SimpleDateFormat("MMM d, yyyy h:mm a", Locale.getDefault()).format(Date(msg.timestamp)),
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

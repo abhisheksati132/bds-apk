@@ -14,6 +14,7 @@ enum class MessageType {
     TEXT,
     IMAGE,
     VOICE,
+    DOCUMENT,
     SYSTEM
 }
 
@@ -62,6 +63,10 @@ data class MessageEntity(
     val replyToId: Long? = null,
     val replyToText: String? = null,
     val reaction: String? = null,
+    val isPinned: Boolean = false,
+    val isEdited: Boolean = false,
+    val fileName: String? = null,
+    val fileSizeBytes: Long = 0L,
     val cloudMsgDocId: String? = null
 )
 

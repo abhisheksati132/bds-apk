@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
         StatusEntity::class,
         CallEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
