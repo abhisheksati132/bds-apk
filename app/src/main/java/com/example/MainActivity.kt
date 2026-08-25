@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.remote.CallSignal
 import com.example.ui.components.AvatarView
 import com.example.ui.components.CleanBottomNavBar
+import com.example.ui.components.WhatsNewDialog
 import com.example.ui.dialogs.AppUpdateDialog
 import com.example.ui.dialogs.ForwardMessageDialog
 import com.example.ui.dialogs.UserProfileDialog
@@ -71,6 +72,24 @@ class MainActivity : ComponentActivity() {
                     contract = ActivityResultContracts.RequestPermission(),
                     onResult = { /* FCM will dispatch messages */ }
                 )
+
+                // Call permissions (Camera & Microphone)
+                val callPermissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestMultiplePermissions(),
+                    onResult = { /* Audio / Video permissions */ }
+                )
+
+                val checkAndStartCall: (com.example.data.model.ConversationEntity, Boolean) -> Unit = { peer, isVideo ->
+                    val needed = mutableListOf(Manifest.permission.RECORD_AUDIO)
+                    if (isVideo) needed.add(Manifest.permission.CAMERA)
+                    val notGranted = needed.filter {
+                        ContextCompat.checkSelfPermission(this@MainActivity, it) != PackageManager.PERMISSION_GRANTED
+                    }
+                    if (notGranted.isNotEmpty()) {
+                        callPermissionLauncher.launch(notGranted.toTypedArray())
+                    }
+                    viewModel.startCall(peer, isVideo)
+                }
 
                 LaunchedEffect(Unit) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -216,7 +235,7 @@ class MainActivity : ComponentActivity() {
                                     onFinishVoiceRecording = { duration, isDisappearing, timer ->
                                         viewModel.finishVoiceRecording(convId, isDisappearing, timer)
                                     },
-                                    onStartCall = { peer, isVideo -> viewModel.startCall(peer, isVideo) },
+                                    onStartCall = { peer, isVideo -> checkAndStartCall(peer, isVideo) },
                                     onUpdateDisappearingTimer = { id, seconds ->
                                         viewModel.updateDisappearingTimer(id, seconds)
                                     },
@@ -301,7 +320,17 @@ class MainActivity : ComponentActivity() {
                                                         viewModel.startNewChatWithCloudUser(cloudUser)
                                                     },
                                                     onStartCallWithUser = { name, handle, isVideo ->
-                                                        viewModel.startCallWithUser(name, handle, isVideo)
+                                                        val dummyConv = com.example.data.model.ConversationEntity(
+                                                            peerId = "u_${handle.replace(".", "_")}",
+                                                            peerName = name,
+                                                            peerHandle = handle,
+                                                            avatarBgColorHex = "#DDE1FF",
+                                                            avatarTextColorHex = "#001453",
+                                                            lastMessage = if (isVideo) "Video call" else "Voice call",
+                                                            lastTimestamp = System.currentTimeMillis(),
+                                                            isOnline = true
+                                                        )
+                                                        checkAndStartCall(dummyConv, isVideo)
                                                     },
                                                     onAddCustomContact = { name, handle ->
                                                         viewModel.createCustomContactAndChat(name, handle)
@@ -325,7 +354,9 @@ class MainActivity : ComponentActivity() {
                                                 CallsScreen(
                                                     calls = calls,
                                                     conversations = conversations,
-                                                    onStartCall = { peer, isVideo -> viewModel.startCall(peer, isVideo) }
+                                                    onStartCall = { peer, isVideo -> checkAndStartCall(peer, isVideo) },
+                                                    onDeleteCall = { id -> viewModel.deleteCall(id) },
+                                                    onClearAllCalls = { viewModel.clearAllCalls() }
                                                 )
                                             }
                                             MainTab.VAULT_SECURITY -> {
@@ -345,7 +376,8 @@ class MainActivity : ComponentActivity() {
                                                     onSetVibrationPattern = { pattern -> viewModel.setVibrationPattern(pattern) },
                                                     onTestVibration = { viewModel.testVibration() },
                                                     onCheckForUpdates = { viewModel.checkForUpdates(silent = false) },
-                                                    onSetGithubUpdateToken = { token -> viewModel.setGithubUpdateToken(token) }
+                                                    onSetGithubUpdateToken = { token -> viewModel.setGithubUpdateToken(token) },
+                                                    onOpenWhatsNew = { viewModel.openWhatsNewDialog() }
                                                 )
                                             }
                                         }
@@ -590,6 +622,14 @@ class MainActivity : ComponentActivity() {
                             onSelectTargetConversation = { targetConvId ->
                                 viewModel.forwardMessageTo(targetConvId, messageToForward)
                             }
+                        )
+                    }
+
+                    // What's New Feature Catalog Dialog
+                    if (uiState.isWhatsNewDialogOpen) {
+                        WhatsNewDialog(
+                            versionName = "v${uiState.currentAppVersion}",
+                            onDismiss = { viewModel.dismissWhatsNewDialog() }
                         )
                     }
                 }

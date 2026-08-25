@@ -512,6 +512,14 @@ class MessengerRepository(
         )
     }
 
+    suspend fun deleteCall(callId: Long) {
+        dao.deleteCall(callId)
+    }
+
+    suspend fun clearCallLogs() {
+        dao.clearCallLogs()
+    }
+
     suspend fun panicWipeVault() {
         dao.wipeMessages()
         dao.wipeConversations()

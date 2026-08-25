@@ -99,7 +99,8 @@ data class UiState(
     val isUpdateReadyToInstall: Boolean = false,
     val updateStatusMessage: String? = null,
     val githubUpdateToken: String = "",
-    val isCallMinimized: Boolean = false
+    val isCallMinimized: Boolean = false,
+    val isWhatsNewDialogOpen: Boolean = false
 ) {
     val isAuthenticated: Boolean
         get() = authUser != null || isGuestUser || myHandle.isNotBlank()
@@ -268,6 +269,10 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
         }
 
         _uiState.update { it.copy(currentAppVersion = appUpdateManager.getCurrentVersionName()) }
+        val lastSeenVersion = prefs.getInt("last_seen_version_code", 0)
+        if (lastSeenVersion < 6) {
+            _uiState.update { it.copy(isWhatsNewDialogOpen = true) }
+        }
         checkForUpdates(silent = true)
         loadRecentUsers()
     }
@@ -1340,6 +1345,27 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
                 )
             }
         }
+    }
+
+    fun deleteCall(callId: Long) {
+        viewModelScope.launch {
+            repository.deleteCall(callId)
+        }
+    }
+
+    fun clearAllCalls() {
+        viewModelScope.launch {
+            repository.clearCallLogs()
+        }
+    }
+
+    fun openWhatsNewDialog() {
+        _uiState.update { it.copy(isWhatsNewDialogOpen = true) }
+    }
+
+    fun dismissWhatsNewDialog() {
+        prefs.edit().putInt("last_seen_version_code", 6).apply()
+        _uiState.update { it.copy(isWhatsNewDialogOpen = false) }
     }
 
     override fun onCleared() {

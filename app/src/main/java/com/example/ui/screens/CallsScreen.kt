@@ -10,11 +10,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMade
 import androidx.compose.material.icons.automirrored.filled.CallMissed
 import androidx.compose.material.icons.automirrored.filled.CallReceived
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Phone
-import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -32,8 +30,13 @@ fun CallsScreen(
     calls: List<CallEntity>,
     conversations: List<ConversationEntity>,
     onStartCall: (ConversationEntity, Boolean) -> Unit,
+    onDeleteCall: (Long) -> Unit = {},
+    onClearAllCalls: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    var showClearConfirm by remember { mutableStateOf(false) }
+    var callToDelete by remember { mutableStateOf<CallEntity?>(null) }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -57,6 +60,19 @@ fun CallsScreen(
                     style = MaterialTheme.typography.headlineLarge,
                     color = MaterialTheme.colorScheme.onBackground
                 )
+
+                if (calls.isNotEmpty()) {
+                    IconButton(
+                        onClick = { showClearConfirm = true },
+                        modifier = Modifier.testTag("btn_clear_all_calls")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteSweep,
+                            contentDescription = "Clear all calls",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
             }
 
             if (calls.isEmpty()) {
@@ -131,22 +147,83 @@ fun CallsScreen(
                                 }
                             }
 
-                            IconButton(
-                                onClick = {
-                                    matchingConv?.let { onStartCall(it, call.isVideo) }
-                                },
-                                modifier = Modifier.testTag("btn_call_again_${call.id}")
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Icon(
-                                    imageVector = if (call.isVideo) Icons.Default.Videocam else Icons.Default.Phone,
-                                    contentDescription = "Call back",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
+                                IconButton(
+                                    onClick = {
+                                        matchingConv?.let { onStartCall(it, call.isVideo) }
+                                    },
+                                    modifier = Modifier.testTag("btn_call_again_${call.id}")
+                                ) {
+                                    Icon(
+                                        imageVector = if (call.isVideo) Icons.Default.Videocam else Icons.Default.Phone,
+                                        contentDescription = "Call back",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = { callToDelete = call },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DeleteOutline,
+                                        contentDescription = "Delete call log",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
+        }
+
+        // Single Call Delete Confirmation
+        callToDelete?.let { call ->
+            AlertDialog(
+                onDismissRequest = { callToDelete = null },
+                title = { Text("Delete Call Log") },
+                text = { Text("Are you sure you want to remove the call log with ${call.peerName}?") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            onDeleteCall(call.id)
+                            callToDelete = null
+                        }
+                    ) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { callToDelete = null }) { Text("Cancel") }
+                }
+            )
+        }
+
+        // Clear All Calls Confirmation
+        if (showClearConfirm) {
+            AlertDialog(
+                onDismissRequest = { showClearConfirm = false },
+                title = { Text("Clear All Call Logs") },
+                text = { Text("This will permanently remove all call history records.") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            onClearAllCalls()
+                            showClearConfirm = false
+                        }
+                    ) {
+                        Text("Clear All", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearConfirm = false }) { Text("Cancel") }
+                }
+            )
         }
     }
 }

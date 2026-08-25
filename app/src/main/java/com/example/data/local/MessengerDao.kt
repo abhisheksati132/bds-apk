@@ -114,6 +114,9 @@ interface MessengerDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCall(call: CallEntity): Long
 
+    @Query("DELETE FROM calls WHERE id = :id")
+    suspend fun deleteCall(id: Long)
+
     @Query("DELETE FROM calls")
     suspend fun clearCallLogs()
 

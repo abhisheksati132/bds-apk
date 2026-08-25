@@ -54,6 +54,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -247,6 +251,17 @@ fun ConversationScreen(
         }
     }
 
+    // Audio recording permission launcher
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            onStartVoiceRecording()
+        } else {
+            Toast.makeText(context, "Microphone permission is required for voice notes", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     // Sync input text when entering edit mode
     LaunchedEffect(uiState.editingMessage) {
         if (uiState.editingMessage != null) {
@@ -387,25 +402,30 @@ fun ConversationScreen(
                     title = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.clickable { onOpenFingerprint() }
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpenFingerprint() }
                         ) {
                             AvatarView(
                                 name = conversation.peerName,
                                 bgHex = conversation.avatarBgColorHex,
                                 textHex = conversation.avatarTextColorHex,
-                                size = 42.dp,
+                                size = 40.dp,
                                 imageUrl = conversation.avatarUrl,
                                 isOnline = conversation.isOnline
                             )
 
-                            Column {
+                            Column(
+                                modifier = Modifier.weight(1f, fill = false)
+                            ) {
                                 Text(
                                     text = conversation.peerName,
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     text = if (uiState.isPeerTyping) "typing..."
@@ -413,6 +433,8 @@ fun ConversationScreen(
                                     else if (conversation.isOnline) "online"
                                     else "@${conversation.peerHandle}",
                                     fontSize = 12.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     color = if (uiState.isPeerTyping || conversation.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -432,38 +454,14 @@ fun ConversationScreen(
                     },
                     actions = {
                         IconButton(
-                            onClick = { isSearchOpen = true },
-                            modifier = Modifier.testTag("btn_search_messages_in_chat")
+                            onClick = { onStartCall(conversation, true) },
+                            modifier = Modifier.testTag("btn_video_call")
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Search messages",
+                                imageVector = Icons.Default.Videocam,
+                                contentDescription = "Video Call",
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
-                        }
-
-                        IconButton(
-                            onClick = { showTimerDialog = true },
-                            modifier = Modifier.testTag("btn_disappearing_timer_top")
-                        ) {
-                            BadgedBox(
-                                badge = {
-                                    if (currentDisappearingTimer > 0) {
-                                        Badge(containerColor = MaterialTheme.colorScheme.error) {
-                                            Text(
-                                                text = formatTimerShort(currentDisappearingTimer),
-                                                fontSize = 9.sp
-                                            )
-                                        }
-                                    }
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = if (currentDisappearingTimer > 0) Icons.Default.Timer else Icons.Outlined.Timer,
-                                    contentDescription = "Disappearing timer",
-                                    tint = if (currentDisappearingTimer > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
                         }
 
                         IconButton(
@@ -473,17 +471,6 @@ fun ConversationScreen(
                             Icon(
                                 imageVector = Icons.Default.Call,
                                 contentDescription = "Voice Call",
-                                tint = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-
-                        IconButton(
-                            onClick = { onStartCall(conversation, true) },
-                            modifier = Modifier.testTag("btn_video_call")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Videocam,
-                                contentDescription = "Video Call",
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
                         }
@@ -502,7 +489,7 @@ fun ConversationScreen(
                                 onDismissRequest = { showMenu = false }
                             ) {
                                 DropdownMenuItem(
-                                    text = { Text("Search Messages") },
+                                    text = { Text("Search in Chat") },
                                     onClick = {
                                         showMenu = false
                                         isSearchOpen = true
@@ -511,92 +498,103 @@ fun ConversationScreen(
                                         Icon(Icons.Default.Search, contentDescription = null)
                                     }
                                 )
-                            DropdownMenuItem(
-                                text = { Text("Shared Media & Files") },
-                                onClick = {
-                                    showMenu = false
-                                    showSharedMediaSheet = true
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Default.PermMedia, contentDescription = null)
-                                }
-                            )
 
-                            DropdownMenuItem(
-                                text = { Text("Encryption Fingerprint") },
-                                onClick = {
-                                    showMenu = false
-                                    onOpenFingerprint()
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Fingerprint, contentDescription = null)
-                                }
-                            )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            if (currentDisappearingTimer > 0)
+                                                "Disappearing Messages (${formatTimerShort(currentDisappearingTimer)})"
+                                            else "Disappearing Messages"
+                                        )
+                                    },
+                                    onClick = {
+                                        showMenu = false
+                                        showTimerDialog = true
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Default.Timer,
+                                            contentDescription = null,
+                                            tint = if (currentDisappearingTimer > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                )
 
-                            DropdownMenuItem(
-                                text = { Text("Chat Wallpaper") },
-                                onClick = {
-                                    showMenu = false
-                                    showWallpaperDialog = true
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Wallpaper, contentDescription = null)
-                                }
-                            )
+                                DropdownMenuItem(
+                                    text = { Text("Shared Media & Files") },
+                                    onClick = {
+                                        showMenu = false
+                                        showSharedMediaSheet = true
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.PermMedia, contentDescription = null)
+                                    }
+                                )
 
-                            DropdownMenuItem(
-                                text = { Text("Disappearing Messages") },
-                                onClick = {
-                                    showMenu = false
-                                    showTimerDialog = true
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Timer, contentDescription = null)
-                                }
-                            )
+                                DropdownMenuItem(
+                                    text = { Text("Encryption Fingerprint") },
+                                    onClick = {
+                                        showMenu = false
+                                        onOpenFingerprint()
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Fingerprint, contentDescription = null)
+                                    }
+                                )
 
-                            DropdownMenuItem(
-                                text = { Text("Export Transcript") },
-                                onClick = {
-                                    showMenu = false
-                                    exportChatTranscript(context, conversation, messages)
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Share, contentDescription = null)
-                                }
-                            )
+                                DropdownMenuItem(
+                                    text = { Text("Chat Wallpaper") },
+                                    onClick = {
+                                        showMenu = false
+                                        showWallpaperDialog = true
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Wallpaper, contentDescription = null)
+                                    }
+                                )
 
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                                DropdownMenuItem(
+                                    text = { Text("Export Transcript") },
+                                    onClick = {
+                                        showMenu = false
+                                        exportChatTranscript(context, conversation, messages)
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Share, contentDescription = null)
+                                    }
+                                )
 
-                            DropdownMenuItem(
-                                text = { Text("Clear Chat Messages") },
-                                onClick = {
-                                    showMenu = false
-                                    onClearChat(conversation.id)
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Default.CleaningServices, contentDescription = null)
-                                }
-                            )
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
-                            DropdownMenuItem(
-                                text = { Text("Delete Conversation", color = MaterialTheme.colorScheme.error) },
-                                onClick = {
-                                    showMenu = false
-                                    onDeleteConversation(conversation.id)
-                                    onBack()
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                                }
-                            )
+                                DropdownMenuItem(
+                                    text = { Text("Clear Chat Messages") },
+                                    onClick = {
+                                        showMenu = false
+                                        onClearChat(conversation.id)
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.CleaningServices, contentDescription = null)
+                                    }
+                                )
+
+                                DropdownMenuItem(
+                                    text = { Text("Delete Conversation", color = MaterialTheme.colorScheme.error) },
+                                    onClick = {
+                                        showMenu = false
+                                        onDeleteConversation(conversation.id)
+                                        onBack()
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                    }
+                                )
+                            }
                         }
                     }
-                }
-            )
+                )
+            }
         }
-    }
-) { paddingValues ->
+    ) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -929,6 +927,7 @@ fun ConversationScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .imePadding()
                         .windowInsetsPadding(WindowInsets.navigationBars)
                         .padding(horizontal = 16.dp, vertical = 10.dp)
                 ) {
@@ -1119,7 +1118,17 @@ fun ConversationScreen(
                                     }
                                 } else if (inputText.isBlank()) {
                                     IconButton(
-                                        onClick = onStartVoiceRecording,
+                                        onClick = {
+                                            val hasPermission = ContextCompat.checkSelfPermission(
+                                                context,
+                                                Manifest.permission.RECORD_AUDIO
+                                            ) == PackageManager.PERMISSION_GRANTED
+                                            if (hasPermission) {
+                                                onStartVoiceRecording()
+                                            } else {
+                                                audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                            }
+                                        },
                                         modifier = Modifier
                                             .testTag("btn_mic_record")
                                             .size(40.dp)
