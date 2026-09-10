@@ -50,10 +50,21 @@ class AudioPlayerHelper(private val context: Context) {
                         .build()
                 )
 
-                if (urlOrPath.startsWith("http://") || urlOrPath.startsWith("https://")) {
+                if (urlOrPath.startsWith("data:")) {
+                    val base64Data = if (urlOrPath.contains(",")) urlOrPath.substringAfter(",") else urlOrPath
+                    val bytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                    val tempAudio = java.io.File(context.cacheDir, "temp_voice_playback.m4a")
+                    java.io.FileOutputStream(tempAudio).use { it.write(bytes) }
+                    setDataSource(context, Uri.fromFile(tempAudio))
+                } else if (urlOrPath.startsWith("http://") || urlOrPath.startsWith("https://") || urlOrPath.startsWith("content://") || urlOrPath.startsWith("file://")) {
                     setDataSource(context, Uri.parse(urlOrPath))
                 } else {
-                    setDataSource(urlOrPath)
+                    val f = java.io.File(urlOrPath)
+                    if (f.exists()) {
+                        setDataSource(context, Uri.fromFile(f))
+                    } else {
+                        setDataSource(urlOrPath)
+                    }
                 }
 
                 setOnPreparedListener { mp ->

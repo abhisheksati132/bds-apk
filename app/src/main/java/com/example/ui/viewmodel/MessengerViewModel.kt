@@ -100,6 +100,11 @@ data class UiState(
     val updateStatusMessage: String? = null,
     val githubUpdateToken: String = "",
     val isCallMinimized: Boolean = false,
+    val isCallConnected: Boolean = false,
+    val callStatusText: String? = null,
+    val isDiagnosticsDialogOpen: Boolean = false,
+    val diagnosticsResult: com.example.data.remote.FirebaseDiagnostics? = null,
+    val isRunningDiagnostics: Boolean = false,
     val isWhatsNewDialogOpen: Boolean = false
 ) {
     val isAuthenticated: Boolean
@@ -270,7 +275,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
 
         _uiState.update { it.copy(currentAppVersion = appUpdateManager.getCurrentVersionName()) }
         val lastSeenVersion = prefs.getInt("last_seen_version_code", 0)
-        if (lastSeenVersion < 6) {
+        if (lastSeenVersion < 7) {
             _uiState.update { it.copy(isWhatsNewDialogOpen = true) }
         }
         checkForUpdates(silent = true)
@@ -289,10 +294,19 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
             )
             cloudService.startIncomingMessageListener(clean)
             cloudService.syncBlockedUsers(clean)
-            cloudService.startIncomingCallListener(clean) { incoming ->
-                callRingtoneHelper.startRingtoneAndVibration()
-                _uiState.update { it.copy(incomingCall = incoming) }
-            }
+            cloudService.startIncomingCallListener(
+                myHandle = clean,
+                onIncomingCall = { incoming ->
+                    callRingtoneHelper.startRingtoneAndVibration()
+                    _uiState.update { it.copy(incomingCall = incoming) }
+                },
+                onCallCancelled = { callId ->
+                    if (_uiState.value.incomingCall?.callId == callId) {
+                        callRingtoneHelper.stop()
+                        _uiState.update { it.copy(incomingCall = null) }
+                    }
+                }
+            )
         }
     }
 
@@ -892,17 +906,13 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
                 activeCall = peer,
                 isVideoCall = isVideo,
                 callDurationSeconds = 0,
+                isCallConnected = false,
+                callStatusText = "Ringing...",
                 isCallMuted = false,
                 isCallSpeaker = false
             )
         }
         callTimerJob?.cancel()
-        callTimerJob = viewModelScope.launch {
-            while (true) {
-                delay(1000)
-                _uiState.update { it.copy(callDurationSeconds = it.callDurationSeconds + 1) }
-            }
-        }
 
         // Fire call signal to recipient via Cloud Relay
         viewModelScope.launch {
@@ -918,8 +928,27 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
             if (callSignalId != null) {
                 callStateListener?.remove()
                 callStateListener = cloudService.observeCallState(callSignalId) { status ->
-                    if (status == "ENDED" || status == "REJECTED") {
-                        endCall(sendSignal = false)
+                    when (status) {
+                        "ACCEPTED" -> {
+                            _uiState.update { it.copy(isCallConnected = true, callStatusText = null) }
+                            callTimerJob?.cancel()
+                            callTimerJob = viewModelScope.launch {
+                                while (true) {
+                                    delay(1000)
+                                    _uiState.update { it.copy(callDurationSeconds = it.callDurationSeconds + 1) }
+                                }
+                            }
+                        }
+                        "REJECTED" -> {
+                            _uiState.update { it.copy(callStatusText = "Call Declined") }
+                            viewModelScope.launch {
+                                delay(1200)
+                                endCall(sendSignal = false)
+                            }
+                        }
+                        "ENDED" -> {
+                            endCall(sendSignal = false)
+                        }
                     }
                 }
             }
@@ -964,6 +993,8 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
                 isVideoCall = incoming.isVideo,
                 incomingCall = null,
                 activeCallSignalId = incoming.callId,
+                isCallConnected = true,
+                callStatusText = null,
                 callDurationSeconds = 0
             )
         }
@@ -973,6 +1004,13 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
             while (true) {
                 delay(1000)
                 _uiState.update { it.copy(callDurationSeconds = it.callDurationSeconds + 1) }
+            }
+        }
+
+        callStateListener?.remove()
+        callStateListener = cloudService.observeCallState(incoming.callId) { status ->
+            if (status == "ENDED") {
+                endCall(sendSignal = false)
             }
         }
     }
@@ -1009,7 +1047,33 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
         }
         callStateListener?.remove()
         callStateListener = null
-        _uiState.update { it.copy(activeCall = null, activeCallSignalId = null, callDurationSeconds = 0, isCallMinimized = false) }
+        _uiState.update {
+            it.copy(
+                activeCall = null,
+                activeCallSignalId = null,
+                callDurationSeconds = 0,
+                isCallConnected = false,
+                callStatusText = null,
+                isCallMinimized = false
+            )
+        }
+    }
+
+    fun openDiagnosticsDialog() {
+        _uiState.update { it.copy(isDiagnosticsDialogOpen = true) }
+        runFirebaseDiagnostics()
+    }
+
+    fun dismissDiagnosticsDialog() {
+        _uiState.update { it.copy(isDiagnosticsDialogOpen = false) }
+    }
+
+    fun runFirebaseDiagnostics() {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isRunningDiagnostics = true) }
+            val result = cloudService.runDiagnostics()
+            _uiState.update { it.copy(isRunningDiagnostics = false, diagnosticsResult = result) }
+        }
     }
 
     fun deleteMessage(messageId: Long, deleteForEveryone: Boolean = false) {
@@ -1364,7 +1428,7 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun dismissWhatsNewDialog() {
-        prefs.edit().putInt("last_seen_version_code", 6).apply()
+        prefs.edit().putInt("last_seen_version_code", 7).apply()
         _uiState.update { it.copy(isWhatsNewDialogOpen = false) }
     }
 

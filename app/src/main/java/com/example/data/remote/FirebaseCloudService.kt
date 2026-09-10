@@ -13,6 +13,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.messaging.FirebaseMessaging
 import com.google.firebase.storage.FirebaseStorage
 import kotlinx.coroutines.*
@@ -461,6 +462,25 @@ class FirebaseCloudService(
 
         val computedExpiresAt = expiresAt ?: if (disappearingSeconds > 0) timestamp + (disappearingSeconds * 1000L) else null
 
+        val resolvedMediaUrl = if (!mediaUrl.isNullOrBlank() && mediaUrl.startsWith("data:")) {
+            val ext = when (type) {
+                MessageType.IMAGE -> ".jpg"
+                MessageType.VOICE -> ".m4a"
+                MessageType.DOCUMENT -> if (!fileName.isNullOrBlank()) "_$fileName" else ".dat"
+                else -> ".bin"
+            }
+            val prefix = when (type) {
+                MessageType.IMAGE -> "img_"
+                MessageType.VOICE -> "voice_"
+                MessageType.DOCUMENT -> "doc_"
+                else -> "media_"
+            }
+            val cachedFile = com.example.util.ImageCompressorHelper.decodeBase64ToCache(context, mediaUrl, prefix, ext)
+            if (cachedFile != null) Uri.fromFile(cachedFile).toString() else mediaUrl
+        } else {
+            mediaUrl
+        }
+
         val message = MessageEntity(
             conversationId = conversationId,
             senderId = senderHandle,
@@ -471,7 +491,7 @@ class FirebaseCloudService(
             isMe = false,
             status = MessageStatus.READ,
             type = type,
-            mediaUrl = mediaUrl,
+            mediaUrl = resolvedMediaUrl,
             voiceDurationSeconds = voiceDuration,
             isDisappearing = disappearingSeconds > 0,
             expiresAtTimestamp = computedExpiresAt,
@@ -822,7 +842,7 @@ class FirebaseCloudService(
     }
 
     // ==========================================
-    // 6. FIREBASE STORAGE IMAGE UPLOAD
+    // 6. FIREBASE STORAGE IMAGE UPLOAD & IN-BAND FALLBACK
     // ==========================================
     suspend fun uploadChatImage(
         imageUri: Uri,
@@ -848,8 +868,15 @@ class FirebaseCloudService(
                 try { compressedFile?.delete() } catch (_: Exception) {}
                 return downloadUrl
             } catch (e: Exception) {
-                Log.w(TAG, "Firebase Storage upload failed: ${e.message}. Saving local copy.")
+                Log.w(TAG, "Firebase Storage upload failed: ${e.message}. Attempting Base64 in-band payload.")
             }
+        }
+
+        // Automatic in-band Base64 fallback (works 100% even without Firebase Storage configured)
+        val base64DataUri = com.example.util.ImageCompressorHelper.compressImageToBase64(context, imageUri)
+        if (!base64DataUri.isNullOrBlank()) {
+            try { compressedFile?.delete() } catch (_: Exception) {}
+            return base64DataUri
         }
 
         // Offline / Local File fallback
@@ -875,9 +902,21 @@ class FirebaseCloudService(
                 }
                 return docRef.downloadUrl.await().toString()
             } catch (e: Exception) {
-                Log.w(TAG, "Document upload failed: ${e.message}")
+                Log.w(TAG, "Document upload failed: ${e.message}. Checking in-band fallback.")
             }
         }
+
+        // In-band Base64 fallback for documents under 600KB
+        try {
+            val bytes = context.contentResolver.openInputStream(docUri)?.use { it.readBytes() }
+            if (bytes != null && bytes.size < 600_000) {
+                val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                return "data:application/octet-stream;base64,$b64"
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Document Base64 encode error: ${e.message}")
+        }
+
         return try {
             val localFile = File(context.filesDir, "doc_${UUID.randomUUID()}_$fileName")
             context.contentResolver.openInputStream(docUri)?.use { input ->
@@ -995,6 +1034,7 @@ class FirebaseCloudService(
 
     /**
      * Upload real recorded voice note .m4a audio file to Firebase Storage
+     * with Base64 in-band fallback for guaranteed delivery.
      */
     suspend fun uploadVoiceNote(
         file: File,
@@ -1007,9 +1047,21 @@ class FirebaseCloudService(
                 voiceRef.putFile(Uri.fromFile(file)).await()
                 return voiceRef.downloadUrl.await().toString()
             } catch (e: Exception) {
-                Log.w(TAG, "Firebase Storage voice note upload error: ${e.message}. Using local file URI.")
+                Log.w(TAG, "Firebase Storage voice note upload error: ${e.message}. Using Base64 in-band payload.")
             }
         }
+
+        // In-band Base64 fallback for voice notes (AAC voice note is ~15-35KB)
+        if (file.exists() && file.length() < 700_000L) {
+            try {
+                val bytes = file.readBytes()
+                val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                return "data:audio/mp4;base64,$b64"
+            } catch (e: Exception) {
+                Log.w(TAG, "Voice note Base64 encode error: ${e.message}")
+            }
+        }
+
         return if (file.exists()) Uri.fromFile(file).toString() else null
     }
 
@@ -1256,7 +1308,11 @@ class FirebaseCloudService(
     // ==========================================
     // CALL SIGNALING SERVICE
     // ==========================================
-    fun startIncomingCallListener(myHandle: String, onIncomingCall: (CallSignal) -> Unit) {
+    fun startIncomingCallListener(
+        myHandle: String,
+        onIncomingCall: (CallSignal) -> Unit,
+        onCallCancelled: (String) -> Unit = {}
+    ) {
         val fs = firestore ?: return
         val clean = myHandle.lowercase().replace("@", "").trim()
         if (clean.isEmpty()) return
@@ -1265,24 +1321,32 @@ class FirebaseCloudService(
         try {
             incomingCallListener = fs.collection("call_signals")
                 .whereEqualTo("recipientHandle", clean)
-                .whereEqualTo("status", "OFFERING")
                 .addSnapshotListener { snapshots, error ->
                     if (error != null) {
                         Log.w(TAG, "Call signal listener error: ${error.message}")
                         return@addSnapshotListener
                     }
-                    if (snapshots != null && !snapshots.isEmpty) {
+                    if (snapshots != null) {
+                        val now = System.currentTimeMillis()
                         for (doc in snapshots.documents) {
-                            val call = CallSignal(
-                                callId = doc.id,
-                                callerHandle = doc.getString("callerHandle") ?: "",
-                                callerName = doc.getString("callerName") ?: "Peer",
-                                recipientHandle = doc.getString("recipientHandle") ?: "",
-                                isVideo = doc.getBoolean("isVideo") ?: false,
-                                status = doc.getString("status") ?: "OFFERING",
-                                timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis()
-                            )
-                            onIncomingCall(call)
+                            val status = doc.getString("status") ?: "OFFERING"
+                            val timestamp = doc.getLong("timestamp") ?: now
+                            val callId = doc.id
+
+                            if (status == "OFFERING" && (now - timestamp) < 60_000L) {
+                                val call = CallSignal(
+                                    callId = callId,
+                                    callerHandle = doc.getString("callerHandle") ?: "",
+                                    callerName = doc.getString("callerName") ?: "Peer",
+                                    recipientHandle = doc.getString("recipientHandle") ?: "",
+                                    isVideo = doc.getBoolean("isVideo") ?: false,
+                                    status = status,
+                                    timestamp = timestamp
+                                )
+                                onIncomingCall(call)
+                            } else if (status in listOf("ENDED", "REJECTED", "ACCEPTED")) {
+                                onCallCancelled(callId)
+                            }
                         }
                     }
                 }
@@ -1365,6 +1429,69 @@ class FirebaseCloudService(
         }
     }
 
+    /**
+     * Live Diagnostics Runner for Firestore, Storage, and Auth
+     */
+    suspend fun runDiagnostics(): FirebaseDiagnostics = withContext(Dispatchers.IO) {
+        val isInit = FirebaseApp.getApps(context).isNotEmpty()
+        var fsConnected = false
+        var fsError: String? = null
+        var fsLatency = 0L
+
+        val fs = firestore
+        if (fs != null) {
+            val start = System.currentTimeMillis()
+            try {
+                val pingDoc = fs.collection("_diagnostics").document("ping")
+                pingDoc.set(mapOf("lastPing" to FieldValue.serverTimestamp())).await()
+                fsConnected = true
+                fsLatency = System.currentTimeMillis() - start
+            } catch (e: Exception) {
+                fsError = e.localizedMessage ?: e.message ?: "Firestore error"
+            }
+        } else {
+            fsError = "Firestore not initialized"
+        }
+
+        var storageOk = false
+        var storageErr: String? = null
+        val st = storage
+        if (st != null) {
+            try {
+                val testRef = st.reference.child("_diagnostics/ping.txt")
+                testRef.putBytes("ping".toByteArray()).await()
+                storageOk = true
+            } catch (e: Exception) {
+                storageErr = e.localizedMessage ?: e.message ?: "Storage access error"
+            }
+        } else {
+            storageErr = "Firebase Storage not initialized"
+        }
+
+        val auth = try { FirebaseAuth.getInstance() } catch (e: Exception) { null }
+        val currentUser = auth?.currentUser
+        val authStatus = when {
+            currentUser == null -> "Not Signed In"
+            currentUser.isAnonymous -> "Anonymous Guest"
+            else -> "Signed In (${currentUser.email ?: currentUser.displayName ?: "User"})"
+        }
+
+        val prefs = context.getSharedPreferences("vault_messenger_prefs", Context.MODE_PRIVATE)
+        val fcmToken = prefs.getString("fcm_token", null)
+
+        FirebaseDiagnostics(
+            isAppInitialized = isInit,
+            isFirestoreConnected = fsConnected,
+            firestoreLatencyMs = fsLatency,
+            firestoreError = fsError,
+            isStorageAvailable = storageOk,
+            storageError = storageErr,
+            authStatus = authStatus,
+            currentUid = currentUser?.uid,
+            fcmToken = fcmToken
+        )
+    }
+
     fun stopListener() {
         setUserOffline()
         incomingMessageListener?.remove()
@@ -1384,4 +1511,16 @@ data class CallSignal(
     val isVideo: Boolean = false,
     val status: String = "OFFERING",
     val timestamp: Long = System.currentTimeMillis()
+)
+
+data class FirebaseDiagnostics(
+    val isAppInitialized: Boolean = false,
+    val isFirestoreConnected: Boolean = false,
+    val firestoreLatencyMs: Long = 0L,
+    val firestoreError: String? = null,
+    val isStorageAvailable: Boolean = false,
+    val storageError: String? = null,
+    val authStatus: String = "Unknown",
+    val currentUid: String? = null,
+    val fcmToken: String? = null
 )

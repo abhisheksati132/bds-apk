@@ -39,6 +39,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.remote.CallSignal
 import com.example.ui.components.AvatarView
 import com.example.ui.components.CleanBottomNavBar
+import com.example.ui.components.FirebaseDiagnosticsDialog
 import com.example.ui.components.WhatsNewDialog
 import com.example.ui.dialogs.AppUpdateDialog
 import com.example.ui.dialogs.ForwardMessageDialog
@@ -165,6 +166,8 @@ class MainActivity : ComponentActivity() {
                         durationSeconds = uiState.callDurationSeconds,
                         isMuted = uiState.isCallMuted,
                         isSpeaker = uiState.isCallSpeaker,
+                        isCallConnected = uiState.isCallConnected,
+                        callStatusText = uiState.callStatusText,
                         onToggleMute = { viewModel.toggleMute() },
                         onToggleSpeaker = { viewModel.toggleSpeaker() },
                         onEndCall = { viewModel.endCall() },
@@ -377,7 +380,8 @@ class MainActivity : ComponentActivity() {
                                                     onTestVibration = { viewModel.testVibration() },
                                                     onCheckForUpdates = { viewModel.checkForUpdates(silent = false) },
                                                     onSetGithubUpdateToken = { token -> viewModel.setGithubUpdateToken(token) },
-                                                    onOpenWhatsNew = { viewModel.openWhatsNewDialog() }
+                                                    onOpenWhatsNew = { viewModel.openWhatsNewDialog() },
+                                                    onOpenFirebaseDiagnostics = { viewModel.openDiagnosticsDialog() }
                                                 )
                                             }
                                         }
@@ -630,6 +634,16 @@ class MainActivity : ComponentActivity() {
                         WhatsNewDialog(
                             versionName = "v${uiState.currentAppVersion}",
                             onDismiss = { viewModel.dismissWhatsNewDialog() }
+                        )
+                    }
+
+                    // Firebase Cloud Diagnostics & Setup Rules Dialog
+                    if (uiState.isDiagnosticsDialogOpen) {
+                        FirebaseDiagnosticsDialog(
+                            diagnostics = uiState.diagnosticsResult,
+                            isRunning = uiState.isRunningDiagnostics,
+                            onRunDiagnostics = { viewModel.runFirebaseDiagnostics() },
+                            onDismiss = { viewModel.dismissDiagnosticsDialog() }
                         )
                     }
                 }

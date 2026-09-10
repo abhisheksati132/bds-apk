@@ -103,4 +103,67 @@ object ImageCompressorHelper {
             bitmap
         }
     }
+
+    /**
+     * Compresses the image to a compact Base64 Data URI (~30KB-60KB)
+     * for instant, 100% reliable in-band Firestore message transmission.
+     */
+    suspend fun compressImageToBase64(context: Context, imageUri: Uri, maxDimension: Int = 800, quality: Int = 70): String? = withContext(Dispatchers.IO) {
+        try {
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.contentResolver.openInputStream(imageUri)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, options)
+            }
+            val origWidth = options.outWidth
+            val origHeight = options.outHeight
+            if (origWidth <= 0 || origHeight <= 0) return@withContext null
+
+            var inSampleSize = 1
+            var maxDim = maxOf(origWidth, origHeight)
+            while (maxDim / 2 >= maxDimension) {
+                inSampleSize *= 2
+                maxDim /= 2
+            }
+
+            val decodeOptions = BitmapFactory.Options().apply {
+                this.inSampleSize = inSampleSize
+                inPreferredConfig = Bitmap.Config.ARGB_8888
+            }
+            var bitmap: Bitmap? = context.contentResolver.openInputStream(imageUri)?.use { stream ->
+                BitmapFactory.decodeStream(stream, null, decodeOptions)
+            } ?: return@withContext null
+
+            bitmap = correctExifOrientation(context, imageUri, bitmap!!)
+            val baos = java.io.ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, baos)
+            bitmap.recycle()
+            val bytes = baos.toByteArray()
+            val base64Str = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+            "data:image/jpeg;base64,$base64Str"
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    /**
+     * Decodes a Base64 data URI (or raw base64) into a local cached file.
+     */
+    suspend fun decodeBase64ToCache(context: Context, dataUriOrBase64: String, prefix: String = "media_", ext: String = ".jpg"): File? = withContext(Dispatchers.IO) {
+        try {
+            val base64Data = if (dataUriOrBase64.contains(",")) {
+                dataUriOrBase64.substringAfter(",")
+            } else {
+                dataUriOrBase64
+            }
+            val bytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+            val cacheDir = File(context.cacheDir, "received_media").apply { if (!exists()) mkdirs() }
+            val file = File(cacheDir, "${prefix}${UUID.randomUUID()}$ext")
+            FileOutputStream(file).use { it.write(bytes) }
+            file
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
 }

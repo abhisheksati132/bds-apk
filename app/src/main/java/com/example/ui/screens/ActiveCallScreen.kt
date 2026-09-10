@@ -34,6 +34,8 @@ fun ActiveCallScreen(
     durationSeconds: Int,
     isMuted: Boolean,
     isSpeaker: Boolean,
+    isCallConnected: Boolean = true,
+    callStatusText: String? = null,
     onToggleMute: () -> Unit,
     onToggleSpeaker: () -> Unit,
     onEndCall: () -> Unit,
@@ -102,8 +104,8 @@ fun ActiveCallScreen(
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Text(
-                                text = "🔒 E2EE Video Connected",
-                                color = Color(0xFF81C784),
+                                text = if (!isCallConnected) (callStatusText ?: "🔒 Calling...") else "🔒 E2EE HD Video Connected",
+                                color = if (!isCallConnected) Color(0xFFFFD54F) else Color(0xFF81C784),
                                 fontSize = 12.sp,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                             )
@@ -174,8 +176,8 @@ fun ActiveCallScreen(
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Text(
-                    text = if (durationSeconds == 0) "Connecting..." else durationText,
-                    color = Color.White,
+                    text = if (!isCallConnected) (callStatusText ?: "Ringing...") else durationText,
+                    color = if (!isCallConnected) Color(0xFFFFD54F) else Color.White,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
@@ -227,10 +229,10 @@ fun ActiveCallScreen(
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "End-to-End Encrypted Voice",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium
+                        text = if (!isCallConnected) (callStatusText ?: "Calling...") else "🔒 End-to-End Encrypted HD Voice",
+                        fontSize = 13.sp,
+                        color = if (!isCallConnected) MaterialTheme.colorScheme.tertiary else Color(0xFF81C784),
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }

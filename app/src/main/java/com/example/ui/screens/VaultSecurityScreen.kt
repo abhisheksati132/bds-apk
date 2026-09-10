@@ -45,6 +45,7 @@ fun VaultSecurityScreen(
     onCheckForUpdates: () -> Unit = {},
     onSetGithubUpdateToken: (String) -> Unit = {},
     onOpenWhatsNew: () -> Unit = {},
+    onOpenFirebaseDiagnostics: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val uriHandler = LocalUriHandler.current
@@ -209,6 +210,59 @@ fun VaultSecurityScreen(
                             text = if (uiState.authUser != null) "Manage" else "Sign In",
                             fontSize = 12.sp
                         )
+                    }
+                }
+            }
+
+            // Firebase Cloud Health & Diagnostics Tile
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .clickable { onOpenFirebaseDiagnostics() },
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.tertiaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudSync,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Firebase Cloud Diagnostics",
+                            fontWeight = FontWeight.SemiBold,
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Test Firestore, Storage & copy setup rules",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    FilledTonalButton(
+                        onClick = onOpenFirebaseDiagnostics,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text("Test", fontSize = 12.sp)
                     }
                 }
             }
