@@ -32,6 +32,15 @@ interface MessengerDao {
     @Query("UPDATE conversations SET isPinned = :isPinned WHERE id = :id")
     suspend fun updateConversationPinned(id: Long, isPinned: Boolean)
 
+    @Query("UPDATE conversations SET isArchived = :isArchived WHERE id = :id")
+    suspend fun updateConversationArchived(id: Long, isArchived: Boolean)
+
+    @Query("UPDATE conversations SET unreadCount = :unreadCount WHERE id = :id")
+    suspend fun updateConversationUnreadCount(id: Long, unreadCount: Int)
+
+    @Query("SELECT * FROM conversations WHERE isArchived = 1 ORDER BY lastTimestamp DESC")
+    fun getArchivedConversations(): Flow<List<ConversationEntity>>
+
     @Query("DELETE FROM conversations WHERE id = :id")
     suspend fun deleteConversation(id: Long)
 

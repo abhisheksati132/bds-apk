@@ -24,6 +24,26 @@ class SecurityPreferencesRepository(private val context: Context) {
         val KEY_NOTIFICATION_SOUNDS = booleanPreferencesKey("notification_sounds_enabled")
         val KEY_VIBRATION_PATTERN = stringPreferencesKey("vibration_pattern")
         val KEY_GITHUB_TOKEN = stringPreferencesKey("github_update_token")
+        val KEY_THEME_NAME = stringPreferencesKey("app_theme_name")
+        val KEY_CHAT_WALLPAPER = stringPreferencesKey("app_chat_wallpaper")
+        val KEY_WALLPAPER_OPACITY = androidx.datastore.preferences.core.floatPreferencesKey("wallpaper_opacity")
+        val KEY_INCOGNITO_KEYBOARD = booleanPreferencesKey("incognito_keyboard")
+    }
+
+    val themeNameFlow: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[KEY_THEME_NAME] ?: "DEFAULT"
+    }
+
+    val chatWallpaperFlow: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[KEY_CHAT_WALLPAPER] ?: "DOODLE_GEOMETRIC"
+    }
+
+    val wallpaperOpacityFlow: Flow<Float> = context.dataStore.data.map { preferences ->
+        preferences[KEY_WALLPAPER_OPACITY] ?: 0.35f
+    }
+
+    val isIncognitoKeyboardFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[KEY_INCOGNITO_KEYBOARD] ?: false
     }
 
     val githubTokenFlow: Flow<String> = context.dataStore.data.map { preferences ->
@@ -112,6 +132,30 @@ class SecurityPreferencesRepository(private val context: Context) {
             } else {
                 preferences[KEY_GITHUB_TOKEN] = token.trim()
             }
+        }
+    }
+
+    suspend fun setThemeName(themeName: String) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_THEME_NAME] = themeName
+        }
+    }
+
+    suspend fun setChatWallpaper(wallpaper: String) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_CHAT_WALLPAPER] = wallpaper
+        }
+    }
+
+    suspend fun setWallpaperOpacity(opacity: Float) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_WALLPAPER_OPACITY] = opacity.coerceIn(0.05f, 1.0f)
+        }
+    }
+
+    suspend fun setIncognitoKeyboard(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[KEY_INCOGNITO_KEYBOARD] = enabled
         }
     }
 

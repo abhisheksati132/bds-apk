@@ -20,6 +20,7 @@ class MessengerRepository(
 ) {
 
     val activeConversations: Flow<List<ConversationEntity>> = dao.getActiveConversations()
+    val archivedConversations: Flow<List<ConversationEntity>> = dao.getArchivedConversations()
     val allContacts: Flow<List<ContactEntity>> = dao.getAllContacts()
     val allStatuses: Flow<List<StatusEntity>> = if (cloudService != null) {
         combine(dao.getAllStatuses(), cloudService.observeCloudStatuses()) { local, cloud ->
@@ -393,6 +394,14 @@ class MessengerRepository(
 
     suspend fun setConversationPinned(conversationId: Long, isPinned: Boolean) {
         dao.updateConversationPinned(conversationId, isPinned)
+    }
+
+    suspend fun setConversationArchived(conversationId: Long, isArchived: Boolean) {
+        dao.updateConversationArchived(conversationId, isArchived)
+    }
+
+    suspend fun setConversationUnreadCount(conversationId: Long, unreadCount: Int) {
+        dao.updateConversationUnreadCount(conversationId, unreadCount)
     }
 
     suspend fun deleteContact(handle: String) {

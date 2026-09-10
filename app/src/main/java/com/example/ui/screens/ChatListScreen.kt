@@ -1,11 +1,14 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -32,14 +36,17 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.widget.Toast
 import com.example.data.model.ConversationEntity
 import com.example.ui.components.AvatarView
+import com.example.ui.theme.SuccessGreen
 import com.example.ui.viewmodel.UiState
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.roundToInt
 
 fun formatChatTime(timestamp: Long): String {
     val now = Calendar.getInstance()
@@ -72,6 +79,8 @@ fun ChatListScreen(
     onDeleteConversation: (Long) -> Unit = {},
     onClearChat: (Long) -> Unit = {},
     onTogglePinConversation: (Long, Boolean) -> Unit = { _, _ -> },
+    onToggleArchiveConversation: (Long, Boolean) -> Unit = { _, _ -> },
+    onToggleMarkAsRead: (Long) -> Unit = {},
     onSearchQueryChanged: (String) -> Unit,
     onFilterSelected: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -82,8 +91,14 @@ fun ChatListScreen(
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
 
-    val filteredConversations = remember(conversations, uiState.searchQuery, uiState.selectedFilter) {
-        conversations.filter { conv ->
+    val totalUnreadCount = remember(conversations) { conversations.sumOf { it.unreadCount } }
+    val totalArchivedCount = remember(uiState.archivedConversations) { uiState.archivedConversations.size }
+    val totalGroupsCount = remember(conversations) { conversations.count { it.isGroup } }
+    val totalDirectCount = remember(conversations) { conversations.count { !it.isGroup } }
+
+    val filteredConversations = remember(conversations, uiState.archivedConversations, uiState.searchQuery, uiState.selectedFilter) {
+        val sourceList = if (uiState.selectedFilter == "ARCHIVED") uiState.archivedConversations else conversations
+        sourceList.filter { conv ->
             val matchesSearch = uiState.searchQuery.isEmpty() ||
                     conv.peerName.contains(uiState.searchQuery, ignoreCase = true) ||
                     conv.lastMessage.contains(uiState.searchQuery, ignoreCase = true) ||
@@ -91,8 +106,9 @@ fun ChatListScreen(
 
             val matchesFilter = when (uiState.selectedFilter) {
                 "UNREAD" -> conv.unreadCount > 0
-                "ENCRYPTED" -> !conv.isGroup
+                "DIRECT", "ENCRYPTED" -> !conv.isGroup
                 "GROUPS" -> conv.isGroup
+                "ARCHIVED" -> true
                 else -> true
             }
 
@@ -122,13 +138,13 @@ fun ChatListScreen(
                 ) {
                     Column {
                         Text(
-                            text = "Messages",
+                            text = if (uiState.selectedFilter == "ARCHIVED") "Archived Chats" else "Messages",
                             style = MaterialTheme.typography.headlineLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground
                         )
                         Text(
-                            text = "${conversations.size} active threads",
+                            text = if (uiState.selectedFilter == "ARCHIVED") "${uiState.archivedConversations.size} archived chats" else "${conversations.size} active threads",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -226,15 +242,22 @@ fun ChatListScreen(
                     )
                 }
 
-                // Filter Chips Row
+                // Telegram-Style Chat Folder Tabs
                 LazyRow(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    val filters = listOf("ALL" to "All", "UNREAD" to "Unread", "ENCRYPTED" to "Direct", "GROUPS" to "Groups")
-                    items(filters) { (key, label) ->
+                    val folders = listOf(
+                        "ALL" to "All",
+                        "UNREAD" to if (totalUnreadCount > 0) "Unread ($totalUnreadCount)" else "Unread",
+                        "DIRECT" to "Direct",
+                        "GROUPS" to if (totalGroupsCount > 0) "Groups ($totalGroupsCount)" else "Groups",
+                        "ARCHIVED" to if (totalArchivedCount > 0) "Archived ($totalArchivedCount)" else "Archived"
+                    )
+
+                    items(folders) { (key, label) ->
                         val isSelected = uiState.selectedFilter == key
                         FilterChip(
                             selected = isSelected,
@@ -280,7 +303,7 @@ fun ChatListScreen(
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    imageVector = Icons.Default.ChatBubbleOutline,
+                                    imageVector = if (uiState.selectedFilter == "ARCHIVED") Icons.Default.Archive else Icons.Default.ChatBubbleOutline,
                                     contentDescription = null,
                                     modifier = Modifier.size(32.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
@@ -288,25 +311,30 @@ fun ChatListScreen(
                             }
                         }
                         Text(
-                            text = if (uiState.searchQuery.isNotEmpty()) "No matching conversations" else "No messages yet",
+                            text = if (uiState.searchQuery.isNotEmpty()) "No matching conversations"
+                            else if (uiState.selectedFilter == "ARCHIVED") "No archived chats"
+                            else "No messages yet",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "Start a private, secure conversation with anyone using their handle.",
+                            text = if (uiState.selectedFilter == "ARCHIVED") "Swipe left on any conversation to archive it."
+                            else "Start a private, secure conversation with anyone using their handle.",
                             style = MaterialTheme.typography.bodyMedium,
                             textAlign = TextAlign.Center,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Button(
-                            onClick = onOpenNewChat,
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier.padding(top = 8.dp)
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Start a Chat", fontWeight = FontWeight.SemiBold)
+                        if (uiState.selectedFilter != "ARCHIVED") {
+                            Button(
+                                onClick = onOpenNewChat,
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.padding(top = 8.dp)
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Start a Chat", fontWeight = FontWeight.SemiBold)
+                            }
                         }
                     }
                 }
@@ -316,7 +344,7 @@ fun ChatListScreen(
                         .fillMaxSize()
                         .weight(1f)
                         .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                     contentPadding = PaddingValues(bottom = 100.dp, top = 4.dp)
                 ) {
                     items(
@@ -324,10 +352,12 @@ fun ChatListScreen(
                         key = { it.id }
                     ) { conv ->
                         Box(modifier = Modifier.animateItem()) {
-                            ConversationListItem(
+                            SwipeableConversationItem(
                                 conversation = conv,
                                 onClick = { onOpenConversation(conv.id) },
-                                onLongClick = { selectedConvForOptions = conv }
+                                onLongClick = { selectedConvForOptions = conv },
+                                onToggleMarkAsRead = { onToggleMarkAsRead(conv.id) },
+                                onToggleArchive = { onToggleArchiveConversation(conv.id, !conv.isArchived) }
                             )
                         }
                     }
@@ -398,6 +428,51 @@ fun ChatListScreen(
                                 Icon(Icons.Default.PushPin, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Text(if (conv.isPinned) "Unpin Conversation" else "Pin to Top", fontSize = 14.sp)
+                            }
+                        }
+
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    val id = conv.id
+                                    val isArchived = conv.isArchived
+                                    selectedConvForOptions = null
+                                    onToggleArchiveConversation(id, !isArchived)
+                                    Toast.makeText(context, if (isArchived) "Chat unarchived" else "Chat archived", Toast.LENGTH_SHORT).show()
+                                },
+                            color = Color.Transparent
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(if (conv.isArchived) Icons.Default.Unarchive else Icons.Default.Archive, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(if (conv.isArchived) "Unarchive Conversation" else "Archive Conversation", fontSize = 14.sp)
+                            }
+                        }
+
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    val id = conv.id
+                                    selectedConvForOptions = null
+                                    onToggleMarkAsRead(id)
+                                    Toast.makeText(context, if (conv.unreadCount > 0) "Marked as read" else "Marked as unread", Toast.LENGTH_SHORT).show()
+                                },
+                            color = Color.Transparent
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(if (conv.unreadCount > 0) Icons.Default.DoneAll else Icons.Default.MarkChatUnread, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(if (conv.unreadCount > 0) "Mark as Read" else "Mark as Unread", fontSize = 14.sp)
                             }
                         }
 
@@ -507,6 +582,119 @@ fun ChatListScreen(
                         Text("Cancel")
                     }
                 }
+            )
+        }
+    }
+}
+
+@Composable
+fun SwipeableConversationItem(
+    conversation: ConversationEntity,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onToggleMarkAsRead: () -> Unit,
+    onToggleArchive: () -> Unit
+) {
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var hasHapticFired by remember { mutableStateOf(false) }
+    val haptic = LocalHapticFeedback.current
+    val animatedOffsetX by animateFloatAsState(
+        targetValue = offsetX,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+        label = "chatSwipe"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .pointerInput(conversation.id) {
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        if (offsetX > 80f) {
+                            onToggleMarkAsRead()
+                        } else if (offsetX < -80f) {
+                            onToggleArchive()
+                        }
+                        offsetX = 0f
+                        hasHapticFired = false
+                    },
+                    onDragCancel = {
+                        offsetX = 0f
+                        hasHapticFired = false
+                    },
+                    onHorizontalDrag = { _, dragAmount ->
+                        offsetX = (offsetX + dragAmount * 0.6f).coerceIn(-130f, 130f)
+                        if ((offsetX > 80f || offsetX < -80f) && !hasHapticFired) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            hasHapticFired = true
+                        }
+                    }
+                )
+            }
+    ) {
+        // Background revealed actions
+        if (animatedOffsetX != 0f) {
+            val isSwipeRight = animatedOffsetX > 0
+            val bgAlpha = (kotlin.math.abs(animatedOffsetX) / 80f).coerceIn(0.2f, 1f)
+            val bgColor = if (isSwipeRight) {
+                if (conversation.unreadCount > 0) SuccessGreen.copy(alpha = bgAlpha) else Color(0xFF3B82F6).copy(alpha = bgAlpha)
+            } else {
+                Color(0xFFF59E0B).copy(alpha = bgAlpha)
+            }
+
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(bgColor)
+                    .padding(horizontal = 20.dp),
+                contentAlignment = if (isSwipeRight) Alignment.CenterStart else Alignment.CenterEnd
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (isSwipeRight) {
+                        Icon(
+                            imageVector = if (conversation.unreadCount > 0) Icons.Default.DoneAll else Icons.Default.MarkChatUnread,
+                            contentDescription = "Mark Read/Unread",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Text(
+                            text = if (conversation.unreadCount > 0) "Read" else "Unread",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    } else {
+                        Text(
+                            text = if (conversation.isArchived) "Unarchive" else "Archive",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                        Icon(
+                            imageVector = if (conversation.isArchived) Icons.Default.Unarchive else Icons.Default.Archive,
+                            contentDescription = "Archive",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Foreground Conversation Item
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(animatedOffsetX.roundToInt(), 0) }
+                .fillMaxWidth()
+        ) {
+            ConversationListItem(
+                conversation = conversation,
+                onClick = onClick,
+                onLongClick = onLongClick
             )
         }
     }

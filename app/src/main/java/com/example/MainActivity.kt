@@ -67,7 +67,7 @@ class MainActivity : ComponentActivity() {
             val calls by viewModel.calls.collectAsStateWithLifecycle()
 
             val isDarkTheme = uiState.isDarkMode ?: isSystemInDarkTheme()
-            MyApplicationTheme(darkTheme = isDarkTheme) {
+            MyApplicationTheme(darkTheme = isDarkTheme, themeName = uiState.selectedTheme) {
                 // Notification Permission for FCM (Android 13+)
                 val notificationPermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission(),
@@ -305,6 +305,8 @@ class MainActivity : ComponentActivity() {
                                                     onDeleteConversation = { id -> viewModel.deleteConversation(id) },
                                                     onClearChat = { id -> viewModel.clearChat(id) },
                                                     onTogglePinConversation = { id, isPinned -> viewModel.togglePinConversation(id, isPinned) },
+                                                    onToggleArchiveConversation = { id, isArchived -> viewModel.toggleArchiveConversation(id, isArchived) },
+                                                    onToggleMarkAsRead = { id -> viewModel.toggleMarkAsRead(id) },
                                                     onSearchQueryChanged = { q -> viewModel.setSearchQuery(q) },
                                                     onFilterSelected = { f -> viewModel.setFilter(f) }
                                                 )
@@ -374,6 +376,10 @@ class MainActivity : ComponentActivity() {
                                                     onRotateKeys = { viewModel.rotateMyKeys() },
                                                     onOpenAuthDialog = { viewModel.setAuthDialogOpen(true) },
                                                     onToggleDarkMode = { mode -> viewModel.setDarkMode(mode) },
+                                                    onSetAppTheme = { theme -> viewModel.setAppTheme(theme) },
+                                                    onSetChatWallpaper = { wallpaper -> viewModel.setChatWallpaper(wallpaper) },
+                                                    onSetWallpaperOpacity = { opacity -> viewModel.setWallpaperOpacity(opacity) },
+                                                    onToggleIncognitoKeyboard = { enabled -> viewModel.setIncognitoKeyboard(enabled) },
                                                     onOpenProfileDialog = { viewModel.setUserProfileDialogOpen(true) },
                                                     onToggleNotificationSounds = { enabled -> viewModel.toggleNotificationSound(enabled) },
                                                     onSetVibrationPattern = { pattern -> viewModel.setVibrationPattern(pattern) },

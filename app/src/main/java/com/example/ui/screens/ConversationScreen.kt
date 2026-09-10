@@ -17,6 +17,9 @@ import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.lazy.items
@@ -66,6 +69,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.example.data.model.*
 import com.example.ui.components.AvatarView
+import com.example.ui.components.ChatWallpaperBackground
 import com.example.ui.components.MediaLightboxViewer
 import com.example.ui.theme.ErrorRed
 import com.example.ui.theme.SuccessGreen
@@ -599,8 +603,12 @@ fun ConversationScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .then(wallpaperModifier)
         ) {
+            ChatWallpaperBackground(
+                wallpaper = uiState.chatWallpaper,
+                opacity = uiState.wallpaperOpacity,
+                modifier = Modifier.fillMaxSize()
+            )
             Column(
                 modifier = Modifier.fillMaxSize()
             ) {
@@ -1080,6 +1088,11 @@ fun ConversationScreen(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     },
+                                    keyboardOptions = KeyboardOptions(
+                                        capitalization = KeyboardCapitalization.Sentences,
+                                        autoCorrectEnabled = !uiState.isIncognitoKeyboard,
+                                        keyboardType = if (uiState.isIncognitoKeyboard) KeyboardType.Password else KeyboardType.Text
+                                    ),
                                     modifier = Modifier
                                         .weight(1f)
                                         .testTag("input_message_field"),

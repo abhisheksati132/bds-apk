@@ -105,7 +105,12 @@ data class UiState(
     val isDiagnosticsDialogOpen: Boolean = false,
     val diagnosticsResult: com.example.data.remote.FirebaseDiagnostics? = null,
     val isRunningDiagnostics: Boolean = false,
-    val isWhatsNewDialogOpen: Boolean = false
+    val isWhatsNewDialogOpen: Boolean = false,
+    val selectedTheme: String = "DEFAULT",
+    val chatWallpaper: String = "DOODLE_GEOMETRIC",
+    val wallpaperOpacity: Float = 0.35f,
+    val isIncognitoKeyboard: Boolean = false,
+    val archivedConversations: List<ConversationEntity> = emptyList()
 ) {
     val isAuthenticated: Boolean
         get() = authUser != null || isGuestUser || myHandle.isNotBlank()
@@ -181,6 +186,31 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             securityPrefs.githubTokenFlow.collect { token ->
                 _uiState.update { it.copy(githubUpdateToken = token) }
+            }
+        }
+        viewModelScope.launch {
+            securityPrefs.themeNameFlow.collect { theme ->
+                _uiState.update { it.copy(selectedTheme = theme) }
+            }
+        }
+        viewModelScope.launch {
+            securityPrefs.chatWallpaperFlow.collect { wallpaper ->
+                _uiState.update { it.copy(chatWallpaper = wallpaper) }
+            }
+        }
+        viewModelScope.launch {
+            securityPrefs.wallpaperOpacityFlow.collect { opacity ->
+                _uiState.update { it.copy(wallpaperOpacity = opacity) }
+            }
+        }
+        viewModelScope.launch {
+            securityPrefs.isIncognitoKeyboardFlow.collect { incognito ->
+                _uiState.update { it.copy(isIncognitoKeyboard = incognito) }
+            }
+        }
+        viewModelScope.launch {
+            repository.archivedConversations.collect { archivedList ->
+                _uiState.update { it.copy(archivedConversations = archivedList) }
             }
         }
 
@@ -1371,6 +1401,53 @@ class MessengerViewModel(application: Application) : AndroidViewModel(applicatio
                     onResult(false, msg)
                 }
             )
+        }
+    }
+
+    fun setAppTheme(theme: String) {
+        viewModelScope.launch {
+            securityPrefs.setThemeName(theme)
+            _uiState.update { it.copy(selectedTheme = theme) }
+        }
+    }
+
+    fun setChatWallpaper(wallpaper: String) {
+        viewModelScope.launch {
+            securityPrefs.setChatWallpaper(wallpaper)
+            _uiState.update { it.copy(chatWallpaper = wallpaper) }
+        }
+    }
+
+    fun setWallpaperOpacity(opacity: Float) {
+        viewModelScope.launch {
+            securityPrefs.setWallpaperOpacity(opacity)
+            _uiState.update { it.copy(wallpaperOpacity = opacity) }
+        }
+    }
+
+    fun setIncognitoKeyboard(enabled: Boolean) {
+        viewModelScope.launch {
+            securityPrefs.setIncognitoKeyboard(enabled)
+            _uiState.update { it.copy(isIncognitoKeyboard = enabled) }
+        }
+    }
+
+    fun toggleArchiveConversation(conversationId: Long, isArchived: Boolean) {
+        viewModelScope.launch {
+            repository.setConversationArchived(conversationId, isArchived)
+        }
+    }
+
+    fun toggleMarkAsRead(conversationId: Long) {
+        viewModelScope.launch {
+            val conv = repository.getConversation(conversationId).firstOrNull()
+            if (conv != null) {
+                if (conv.unreadCount > 0) {
+                    repository.markConversationRead(conversationId, _uiState.value.myHandle)
+                } else {
+                    repository.setConversationUnreadCount(conversationId, 1)
+                }
+            }
         }
     }
 

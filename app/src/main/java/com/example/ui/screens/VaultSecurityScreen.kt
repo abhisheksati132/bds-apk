@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -38,6 +39,10 @@ fun VaultSecurityScreen(
     onRotateKeys: () -> Unit = {},
     onOpenAuthDialog: () -> Unit = {},
     onToggleDarkMode: (Boolean?) -> Unit = {},
+    onSetAppTheme: (String) -> Unit = {},
+    onSetChatWallpaper: (String) -> Unit = {},
+    onSetWallpaperOpacity: (Float) -> Unit = {},
+    onToggleIncognitoKeyboard: (Boolean) -> Unit = {},
     onOpenProfileDialog: () -> Unit = {},
     onToggleNotificationSounds: (Boolean) -> Unit = {},
     onSetVibrationPattern: (String) -> Unit = {},
@@ -397,6 +402,49 @@ fun VaultSecurityScreen(
                 }
             }
 
+            // Incognito Keyboard Tile
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 4.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.KeyboardHide, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Column {
+                            Text(
+                                text = "Incognito Keyboard",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Disable personalized keyboard dictionary learning",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    Switch(
+                        checked = uiState.isIncognitoKeyboard,
+                        onCheckedChange = onToggleIncognitoKeyboard
+                    )
+                }
+            }
+
             // Handle & Keys Management
             Surface(
                 modifier = Modifier
@@ -632,7 +680,8 @@ fun VaultSecurityScreen(
                 shape = RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    // Dark / Light / System Mode
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -644,7 +693,7 @@ fun VaultSecurityScreen(
                         )
                         Column {
                             Text(
-                                text = "App Theme",
+                                text = "Color Mode",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -653,7 +702,7 @@ fun VaultSecurityScreen(
                                 text = when (uiState.isDarkMode) {
                                     true -> "Dark"
                                     false -> "Light"
-                                    null -> "System"
+                                    null -> "System Default"
                                 },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -683,6 +732,175 @@ fun VaultSecurityScreen(
                             label = { Text("System", fontSize = 12.sp) },
                             modifier = Modifier.weight(1f)
                         )
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    // Color Theme Presets
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Palette,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Column {
+                                Text(
+                                    text = "Color Theme Preset",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Dynamic ambient color styling across chats and controls",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        val themes = listOf(
+                            Triple("DEFAULT", "AMOLED Black", Color(0xFF00E5FF)),
+                            Triple("TELEGRAM", "Telegram Navy", Color(0xFF5288C1)),
+                            Triple("SIGNAL", "Signal Emerald", Color(0xFF32A880)),
+                            Triple("CYBERPUNK", "Cyberpunk Neon", Color(0xFFBD34FE))
+                        )
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            themes.forEach { (themeKey, title, accentColor) ->
+                                val isSelected = uiState.selectedTheme.equals(themeKey, ignoreCase = true) ||
+                                        (themeKey == "DEFAULT" && (uiState.selectedTheme.isBlank() || uiState.selectedTheme.equals("DEFAULT", ignoreCase = true)))
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .clickable { onSetAppTheme(themeKey) },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else Color.Transparent,
+                                    border = BorderStroke(
+                                        1.dp,
+                                        if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                                    )
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(14.dp)
+                                                    .clip(CircleShape)
+                                                    .background(accentColor)
+                                            )
+                                            Text(
+                                                text = title,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                        if (isSelected) {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = "Selected",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                    // Chat Vector Wallpaper Engine
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Wallpaper,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Column {
+                                Text(
+                                    text = "Chat Vector Wallpaper",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Lightweight canvas-drawn doodle patterns in conversations",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        val wallpapers = listOf(
+                            "DOODLE_GEOMETRIC" to "Doodles",
+                            "MIDNIGHT_NEBULA" to "Nebula",
+                            "EMERALD_BOTANICAL" to "Emerald",
+                            "CYBER_GRID" to "Cyber Grid",
+                            "MINIMAL" to "Minimal"
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            wallpapers.forEach { (wpKey, label) ->
+                                val isSelected = uiState.chatWallpaper.equals(wpKey, ignoreCase = true) ||
+                                        (wpKey == "DOODLE_GEOMETRIC" && uiState.chatWallpaper.equals("doodles", ignoreCase = true))
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { onSetChatWallpaper(wpKey) },
+                                    label = { Text(label, fontSize = 11.sp) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
+                        // Wallpaper Opacity Slider
+                        Column(modifier = Modifier.padding(top = 4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Pattern Opacity",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "${(uiState.wallpaperOpacity * 100).toInt()}%",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Slider(
+                                value = uiState.wallpaperOpacity,
+                                onValueChange = { onSetWallpaperOpacity(it) },
+                                valueRange = 0.05f..0.50f,
+                                steps = 9
+                            )
+                        }
                     }
                 }
             }

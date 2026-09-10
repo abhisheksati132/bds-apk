@@ -33,45 +33,45 @@ data class FeatureHighlight(
 
 @Composable
 fun WhatsNewDialog(
-    versionName: String = "v1.4.0",
+    versionName: String = "v1.5.0",
     onDismiss: () -> Unit
 ) {
     val features = listOf(
         FeatureHighlight(
-            icon = Icons.Default.PushPin,
-            title = "Pinned Messages",
-            description = "Pin important messages to the top banner inside any conversation for instant access.",
+            icon = Icons.Default.Folder,
+            title = "Telegram-Style Chat Folders",
+            description = "Filter conversations by All, Unread (with dynamic badge count), Direct messages, Groups, and Archived.",
             tag = "NEW"
         ),
         FeatureHighlight(
-            icon = Icons.Default.Edit,
-            title = "Message Editing",
-            description = "Edit sent messages within 15 minutes with end-to-end re-encryption and edit history badge.",
+            icon = Icons.Default.Swipe,
+            title = "Swipe Actions on Chats",
+            description = "Swipe right to toggle Mark as Read/Unread, swipe left to Archive or Unarchive with spring tactile feedback.",
             tag = "NEW"
         ),
         FeatureHighlight(
-            icon = Icons.Default.Description,
-            title = "Document & File Sharing",
-            description = "Send PDFs, documents, archives, and code files directly with formatted sizes and tap-to-open.",
+            icon = Icons.Default.Wallpaper,
+            title = "Vector Doodle Wallpaper Engine",
+            description = "Lightweight canvas doodle patterns (paper planes, padlocks, nebula, cyber grid) with adjustable opacity.",
             tag = "NEW"
         ),
         FeatureHighlight(
-            icon = Icons.Default.Speed,
-            title = "Voice 1.5x & 2x Speed",
-            description = "Play voice notes at 1x, 1.5x, or 2x playback speed with interactive waveform scrubbing.",
+            icon = Icons.Default.Palette,
+            title = "Theme Presets",
+            description = "Switch between AMOLED Black, Telegram Navy, Signal Emerald, and Cyberpunk Neon color palettes.",
             tag = "NEW"
         ),
         FeatureHighlight(
-            icon = Icons.Default.DeleteSweep,
-            title = "Delete Calls & Logs",
-            description = "Remove single call logs, clear full call history, and delete contacts directly from your vault.",
-            tag = "UPDATED"
+            icon = Icons.Default.SaveAlt,
+            title = "Save Media to Gallery",
+            description = "Export received photos directly to your Android device Pictures gallery and share with native apps.",
+            tag = "NEW"
         ),
         FeatureHighlight(
-            icon = Icons.Default.ChatBubbleOutline,
-            title = "Streamlined Chat Header",
-            description = "Rebalanced top bar with full contact name visibility, online/typing status, and responsive layout.",
-            tag = "IMPROVED"
+            icon = Icons.Default.Security,
+            title = "Incognito Keyboard Mode",
+            description = "Block keyboard dictionary learning and keystroke caching for bulletproof input privacy.",
+            tag = "NEW"
         )
     )
 
